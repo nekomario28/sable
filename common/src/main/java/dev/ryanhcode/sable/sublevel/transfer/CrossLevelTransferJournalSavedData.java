@@ -6,8 +6,11 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.saveddata.SavedData;
+import net.minecraft.world.level.storage.DimensionDataStorage;
+import net.minecraft.world.level.storage.LevelResource;
 import org.jetbrains.annotations.NotNull;
 
+import java.io.File;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -61,6 +64,23 @@ public final class CrossLevelTransferJournalSavedData extends SavedData {
         Objects.requireNonNull(server, "server");
         final ServerLevel overworld = Objects.requireNonNull(server.overworld(), "overworld");
         return overworld.getChunkSource().getDataStorage().computeIfAbsent(FACTORY, FILE_ID);
+    }
+
+    /**
+     * Reads the journal through a new, empty DataStorage cache after a live save.
+     * This is the closest in-process equivalent to the next server boot read path.
+     */
+    static CrossLevelTransferJournalSavedData loadFreshFromDisk(final MinecraftServer server) {
+        Objects.requireNonNull(server, "server");
+        final File dataDirectory = server.getWorldPath(LevelResource.ROOT)
+                .resolve("data")
+                .toFile();
+        final DimensionDataStorage freshStorage = new DimensionDataStorage(
+                dataDirectory,
+                server.getFixerUpper(),
+                server.registryAccess()
+        );
+        return freshStorage.computeIfAbsent(FACTORY, FILE_ID);
     }
 
     /**
