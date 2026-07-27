@@ -85,8 +85,48 @@ public final class CrossLevelTransferJournalController {
         return this.ownership.ownerOfTargetSlot(targetSlot);
     }
 
+    /**
+     * Atomically verifies that one transaction owns the exact immutable transfer
+     * identity, source sub-level, and target slot. The durable phase may advance
+     * without changing that identity.
+     *
+     * @param expected expected immutable transfer identity
+     * @return whether the journal controller currently owns that exact transfer
+     */
+    public synchronized boolean ownsTransfer(final CrossLevelTransferTransactionState expected) {
+        Objects.requireNonNull(expected, "expected");
+
+        final CrossLevelTransferTransactionState current = this.ownership
+                .state(expected.transactionId())
+                .orElse(null);
+        if (current == null || !sameTransferIdentity(current, expected)) {
+            return false;
+        }
+
+        final UUID transactionId = expected.transactionId();
+        return this.ownership.ownerOfSubLevel(expected.subLevelId())
+                .filter(transactionId::equals)
+                .isPresent() &&
+                this.ownership.ownerOfTargetSlot(CrossLevelTransferTargetSlot.from(expected))
+                        .filter(transactionId::equals)
+                        .isPresent();
+    }
+
     public synchronized int size() {
         return this.ownership.size();
+    }
+
+    private static boolean sameTransferIdentity(
+            final CrossLevelTransferTransactionState current,
+            final CrossLevelTransferTransactionState expected
+    ) {
+        return current.transactionId().equals(expected.transactionId()) &&
+                current.subLevelId().equals(expected.subLevelId()) &&
+                current.sourceDimension().equals(expected.sourceDimension()) &&
+                current.targetDimension().equals(expected.targetDimension()) &&
+                current.localPlotX() == expected.localPlotX() &&
+                current.localPlotZ() == expected.localPlotZ() &&
+                current.snapshotFormatVersion() == expected.snapshotFormatVersion();
     }
 
     private void synchronizeJournal() {
