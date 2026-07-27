@@ -2,6 +2,9 @@ package dev.ryanhcode.sable.sublevel.transfer;
 
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.util.datafix.DataFixTypes;
 import net.minecraft.world.level.saveddata.SavedData;
 import org.jetbrains.annotations.NotNull;
 
@@ -9,17 +12,23 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * World-independent SavedData representation of the cross-dimension transfer journal.
+ * Server-global SavedData representation of the cross-dimension transfer journal.
  *
- * <p>This type deliberately has no DataStorage lookup method yet. A later phase may
- * bind it to one authoritative server-level storage location after persistence
- * behavior is proven independently.</p>
+ * <p>The journal is stored only in the server Overworld DataStorage. Callers use
+ * {@link #getOrLoad(MinecraftServer)} so a source or target dimension cannot create
+ * a second authoritative journal.</p>
  *
  * <p>Malformed durable data is preserved verbatim and makes the instance read-only.
  * It is never converted to an empty journal during an ordinary save.</p>
  */
 public final class CrossLevelTransferJournalSavedData extends SavedData {
     public static final String FILE_ID = "sable_cross_level_transfer_journal";
+
+    private static final Factory<CrossLevelTransferJournalSavedData> FACTORY = new Factory<>(
+            CrossLevelTransferJournalSavedData::createEmpty,
+            (tag, provider) -> CrossLevelTransferJournalSavedData.load(tag),
+            DataFixTypes.LEVEL
+    );
 
     private final CrossLevelTransferJournalLoadStatus loadStatus;
     private CrossLevelTransferJournalSnapshot snapshot;
@@ -37,6 +46,21 @@ public final class CrossLevelTransferJournalSavedData extends SavedData {
         this.loadStatus = CrossLevelTransferJournalLoadStatus.CORRUPT_PRESERVED;
         this.snapshot = null;
         this.preservedCorruptTag = Objects.requireNonNull(corruptTag, "corruptTag").copy();
+    }
+
+    /**
+     * Returns the one authoritative transfer journal from Overworld DataStorage.
+     *
+     * <p>This method does not run automatically; server lifecycle integration remains
+     * a separate phase.</p>
+     *
+     * @param server running server with initialized levels
+     * @return the authoritative server-global journal
+     */
+    public static CrossLevelTransferJournalSavedData getOrLoad(final MinecraftServer server) {
+        Objects.requireNonNull(server, "server");
+        final ServerLevel overworld = Objects.requireNonNull(server.overworld(), "overworld");
+        return overworld.getChunkSource().getDataStorage().computeIfAbsent(FACTORY, FILE_ID);
     }
 
     /**
