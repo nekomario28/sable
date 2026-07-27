@@ -1,6 +1,7 @@
 package dev.ryanhcode.sable.sublevel.transfer;
 
 import dev.ryanhcode.sable.Sable;
+import dev.ryanhcode.sable.api.SubLevelHelper;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
@@ -14,10 +15,10 @@ import java.util.Objects;
  * Read-only adapter that observes the Phase 01 runtime facts that can be proven
  * directly from a loaded source and target level.
  *
- * <p>This adapter deliberately leaves dependency absence, complete target UUID
- * uniqueness, transaction ownership, and verified snapshot availability in their
- * fail-closed defaults. Those facts require other authoritative subsystems and must
- * be enriched in later phases before validation can succeed.</p>
+ * <p>This adapter deliberately leaves complete target UUID uniqueness, transaction
+ * ownership, and verified snapshot availability in their fail-closed defaults.
+ * Those facts require other authoritative subsystems and must be enriched in later
+ * phases before validation can succeed.</p>
  */
 public final class CrossLevelTransferRuntimePreflightAdapter {
     private CrossLevelTransferRuntimePreflightAdapter() {
@@ -53,6 +54,7 @@ public final class CrossLevelTransferRuntimePreflightAdapter {
                 .sourceContainerAvailable(sourceContainerAvailable)
                 .targetContainerAvailable(targetContainerAvailable)
                 .targetPhysicsAvailable(hasPhysicsSystem(targetContainer))
+                .dependenciesPresent(SubLevelHelper.getLoadingDependencyChain(source).size() > 1)
                 .activeKinematicContraption(!source.getPlot().getContraptions().isEmpty())
                 .compatibleSectionLayout(hasCompatibleSectionLayout(sourceLevel, targetLevel))
                 .targetSlotOccupied(isTargetSlotOccupied(source, sourceContainer, targetContainer))
@@ -60,7 +62,6 @@ public final class CrossLevelTransferRuntimePreflightAdapter {
 
         // Intentionally not marked safe here:
         // - duplicateTargetUuid: unloaded target storage is not covered by the loaded UUID map
-        // - dependenciesPresent: no complete live dependency query exists at this boundary
         // - transactionConflict: must come from the authoritative journal controller
         // - snapshotAvailable: must come from a verified immutable snapshot store
         return builder.build();
