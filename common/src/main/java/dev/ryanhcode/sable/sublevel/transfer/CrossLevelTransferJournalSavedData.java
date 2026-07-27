@@ -94,7 +94,6 @@ public final class CrossLevelTransferJournalSavedData extends SavedData {
             final HolderLookup.Provider provider
     ) {
         Objects.requireNonNull(compoundTag, "compoundTag");
-        Objects.requireNonNull(provider, "provider");
 
         if (this.loadStatus == CrossLevelTransferJournalLoadStatus.CORRUPT_PRESERVED) {
             compoundTag.merge(this.preservedCorruptTag.copy());
