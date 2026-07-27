@@ -33,6 +33,14 @@ jobs:
       - name: Validate Gradle wrapper
         run: ./gradlew --version
 
+      - name: Discover NeoForge GameTest tasks
+        shell: bash
+        run: |
+          set -o pipefail
+          ./gradlew :neoforge:tasks --all --no-daemon --console=plain 2>&1 | tee neoforge-tasks.log
+          grep -Ei '(^|[[:space:]])run.*game.?test|game.?test.*run' neoforge-tasks.log | tee neoforge-gametest-tasks.log
+          test -s neoforge-gametest-tasks.log
+
       - name: Build and test
         shell: bash
         run: |
@@ -46,6 +54,8 @@ jobs:
           name: gradle-diagnostics
           path: |
             gradle-build.log
+            neoforge-tasks.log
+            neoforge-gametest-tasks.log
             **/build/test-results/test/**
             **/build/reports/tests/test/**
           if-no-files-found: warn
