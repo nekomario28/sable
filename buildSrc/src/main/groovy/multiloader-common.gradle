@@ -119,7 +119,7 @@ dependencies {
     compileOnly("maven.modrinth:jade:${project.jade_version}+neoforge") { transitive = false }
     compileOnly("maven.modrinth:jade-addons-forge:${project.jade_addons_version}+neoforge") { transitive = false }
     compileOnly("maven.modrinth:moonlight:${project.moonlight_version}-neoforge")
-    compileOnly("curse.maven:vista-1368607:$vista_version")
+    compileOnly("maven.modrinth:zuARv1N7:$vista_version")
     compileOnly("maven.modrinth:shoulder-surfing-reloaded:${minecraft_version}-${project.shouldersurfing_version}+neoforge") { transitive = false }
 }
 
@@ -201,7 +201,6 @@ publishing {
             from components.java
         }
     }
-
     repositories {
         mavenLocal()
         maven {
