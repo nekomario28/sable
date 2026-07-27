@@ -63,7 +63,7 @@ public final class CrossLevelTransferUuidLocationIndexCodec {
     }
 
     /**
-     * Decodes the complete index fail-closed. One malformed or conflicting entry
+     * Decodes the complete index fail-closed. One malformed or duplicate entry
      * rejects the entire index.
      */
     public static Optional<CrossLevelTransferUuidLocationIndex> decode(final CompoundTag tag) {
@@ -89,8 +89,7 @@ public final class CrossLevelTransferUuidLocationIndexCodec {
             final DecodedEntry entry = decodedEntry.orElseThrow();
             final CrossLevelTransferUuidLocationIndex.RegistrationResult result =
                     index.register(entry.subLevelId(), entry.location());
-            if (result == CrossLevelTransferUuidLocationIndex.RegistrationResult.DUPLICATE_UUID_CONFLICT ||
-                    result == CrossLevelTransferUuidLocationIndex.RegistrationResult.INDEX_CONFLICTED) {
+            if (result != CrossLevelTransferUuidLocationIndex.RegistrationResult.REGISTERED) {
                 return Optional.empty();
             }
         }
