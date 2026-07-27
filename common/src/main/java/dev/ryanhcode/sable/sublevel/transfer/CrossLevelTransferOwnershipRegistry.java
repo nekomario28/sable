@@ -81,6 +81,46 @@ public final class CrossLevelTransferOwnershipRegistry {
     }
 
     /**
+     * Creates a deterministic immutable snapshot of all current ownership.
+     *
+     * @return conflict-free journal snapshot
+     */
+    public synchronized CrossLevelTransferJournalSnapshot snapshot() {
+        return CrossLevelTransferJournalSnapshot.of(this.statesByTransaction.values());
+    }
+
+    /**
+     * Atomically restores all ownership indexes from a validated journal snapshot.
+     *
+     * <p>Restore is only valid for a new, empty registry. This prevents loaded
+     * durable ownership from being merged with possibly conflicting live state.</p>
+     *
+     * @param snapshot validated durable snapshot
+     */
+    public synchronized void restore(final CrossLevelTransferJournalSnapshot snapshot) {
+        Objects.requireNonNull(snapshot, "snapshot");
+        if (!this.statesByTransaction.isEmpty() ||
+                !this.transactionsBySubLevel.isEmpty() ||
+                !this.transactionsByTargetSlot.isEmpty()) {
+            throw new IllegalStateException("Ownership restore requires an empty registry");
+        }
+
+        final Map<UUID, CrossLevelTransferTransactionState> restoredStates = new HashMap<>();
+        final Map<UUID, UUID> restoredSubLevels = new HashMap<>();
+        final Map<CrossLevelTransferTargetSlot, UUID> restoredTargetSlots = new HashMap<>();
+
+        for (final CrossLevelTransferTransactionState state : snapshot.states()) {
+            restoredStates.put(state.transactionId(), state);
+            restoredSubLevels.put(state.subLevelId(), state.transactionId());
+            restoredTargetSlots.put(CrossLevelTransferTargetSlot.from(state), state.transactionId());
+        }
+
+        this.statesByTransaction.putAll(restoredStates);
+        this.transactionsBySubLevel.putAll(restoredSubLevels);
+        this.transactionsByTargetSlot.putAll(restoredTargetSlots);
+    }
+
+    /**
      * Releases all ownership indexes for a terminal transaction.
      *
      * @param transactionId transaction to release
