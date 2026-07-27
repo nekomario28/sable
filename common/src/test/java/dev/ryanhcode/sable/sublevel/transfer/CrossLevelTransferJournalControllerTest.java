@@ -129,7 +129,7 @@ class CrossLevelTransferJournalControllerTest {
         final CrossLevelTransferJournalController controller = new CrossLevelTransferJournalController(data);
 
         assertThrows(
-                IllegalArgumentException.class,
+                IllegalStateException.class,
                 () -> controller.advance(preparing.transactionId(), CrossLevelTransferPhase.COMMITTED)
         );
 
