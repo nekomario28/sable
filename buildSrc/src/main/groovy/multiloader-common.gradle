@@ -110,6 +110,12 @@ repositories {
     }
 }
 
+// Vista can disable third-party Maven sharing. Default builds still verify its
+// compile-only compatibility; CI may explicitly skip only this unavailable artifact.
+def skipVistaCompat = providers.gradleProperty("sable.skipVistaCompat")
+        .map { it.toBoolean() }
+        .getOrElse(false)
+
 dependencies {
     compileOnly "net.caffeinemc:sodium-neoforge-mod:$sodium_version"
     compileOnly "maven.modrinth:iris:$iris_version"
@@ -119,7 +125,9 @@ dependencies {
     compileOnly("maven.modrinth:jade:${project.jade_version}+neoforge") { transitive = false }
     compileOnly("maven.modrinth:jade-addons-forge:${project.jade_addons_version}+neoforge") { transitive = false }
     compileOnly("maven.modrinth:moonlight:${project.moonlight_version}-neoforge")
-    compileOnly("curse.maven:vista-1368607:$vista_version")
+    if (!skipVistaCompat) {
+        compileOnly("curse.maven:vista-1368607:$vista_version")
+    }
     compileOnly("maven.modrinth:shoulder-surfing-reloaded:${minecraft_version}-${project.shouldersurfing_version}+neoforge") { transitive = false }
 }
 
@@ -201,7 +209,6 @@ publishing {
             from components.java
         }
     }
-
     repositories {
         mavenLocal()
         maven {
