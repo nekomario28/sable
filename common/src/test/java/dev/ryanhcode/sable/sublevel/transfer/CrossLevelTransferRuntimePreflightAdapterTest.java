@@ -62,7 +62,7 @@ class CrossLevelTransferRuntimePreflightAdapterTest {
 
         final CrossLevelTransferValidation validation = CrossLevelTransferPreflightValidator.validate(partial);
 
-        assertFalse(validation.accepted());
+        assertFalse(validation.isAccepted());
         assertTrue(validation.failures().contains(CrossLevelTransferFailure.DUPLICATE_TARGET_UUID));
         assertTrue(validation.failures().contains(CrossLevelTransferFailure.DEPENDENCIES_PRESENT));
         assertTrue(validation.failures().contains(CrossLevelTransferFailure.TRANSACTION_CONFLICT));
