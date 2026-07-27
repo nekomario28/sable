@@ -41,7 +41,11 @@ jobs:
 
           for attempt in 1 2 3; do
             echo "Gradle build attempt ${attempt}/3" | tee -a gradle-build.log
-            if ./gradlew build --stacktrace --no-daemon --console=plain 2>&1 | tee -a gradle-build.log; then
+            if ./gradlew build \
+              -Psable.skipVistaCompat=true \
+              --stacktrace \
+              --no-daemon \
+              --console=plain 2>&1 | tee -a gradle-build.log; then
               exit 0
             fi
 
