@@ -59,6 +59,29 @@ public final class CrossLevelTransferJournalController {
     }
 
     /**
+     * Atomically verifies immutable ownership identity and advances one phase.
+     *
+     * @return the advanced state, or empty when the exact transfer is not owned
+     */
+    public synchronized Optional<CrossLevelTransferTransactionState> advanceOwned(
+            final CrossLevelTransferTransactionState expected,
+            final CrossLevelTransferPhase next
+    ) {
+        Objects.requireNonNull(expected, "expected");
+        Objects.requireNonNull(next, "next");
+        if (!this.ownsTransfer(expected)) {
+            return Optional.empty();
+        }
+
+        final CrossLevelTransferTransactionState state = this.ownership.advance(
+                expected.transactionId(),
+                next
+        );
+        this.synchronizeJournal();
+        return Optional.of(state);
+    }
+
+    /**
      * Releases a terminal transaction and synchronizes the journal when it existed.
      */
     public synchronized boolean release(final UUID transactionId) {
