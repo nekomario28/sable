@@ -18,6 +18,9 @@ public sealed interface CrossLevelTransferSubLevelLocation
             implements CrossLevelTransferSubLevelLocation {
         public Loaded {
             dimension = requireDimension(dimension);
+            if (localPlotX < 0 || localPlotZ < 0) {
+                throw new IllegalArgumentException("local plot coordinates must be non-negative");
+            }
         }
     }
 
@@ -29,6 +32,9 @@ public sealed interface CrossLevelTransferSubLevelLocation
         public Stored {
             dimension = requireDimension(dimension);
             Objects.requireNonNull(pointer, "pointer");
+            if (pointer.storageIndex() < 0 || pointer.subLevelIndex() < 0) {
+                throw new IllegalArgumentException("storage pointer indices must be non-negative");
+            }
         }
     }
 
