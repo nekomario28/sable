@@ -93,7 +93,9 @@ class CrossLevelTransferJournalSavedDataTest {
     }
 
     @Test
-    void nullContractsAreRejected() {
+    void storageBindingAndNullContractsAreExplicit() {
+        assertEquals("sable_cross_level_transfer_journal", CrossLevelTransferJournalSavedData.FILE_ID);
+        assertThrows(NullPointerException.class, () -> CrossLevelTransferJournalSavedData.getOrLoad(null));
         assertThrows(NullPointerException.class, () -> CrossLevelTransferJournalSavedData.load(null));
         assertThrows(
                 NullPointerException.class,
