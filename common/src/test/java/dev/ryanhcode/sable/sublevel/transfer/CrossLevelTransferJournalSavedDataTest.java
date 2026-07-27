@@ -101,7 +101,7 @@ class CrossLevelTransferJournalSavedDataTest {
         );
         assertThrows(
                 NullPointerException.class,
-                () -> CrossLevelTransferJournalSavedData.createEmpty().save(null, null)
+                () -> CrossLevelTransferJournalSavedData.createEmpty().save((CompoundTag) null, null)
         );
     }
 
