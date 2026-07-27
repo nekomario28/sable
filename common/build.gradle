@@ -65,7 +65,7 @@ dependencies {
         transitive = false
     }
 
-    //source: https://github.com/Fuzss/modresources
+    //source: https://raw.githubusercontent.com/Fuzss/modresources/main/maven/
     implementation "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
 
     testImplementation platform('org.junit:junit-bom:6.0.0')
