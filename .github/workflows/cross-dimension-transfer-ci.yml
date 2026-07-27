@@ -37,7 +37,20 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          ./gradlew build --stacktrace --no-daemon --console=plain 2>&1 | tee gradle-build.log
+          : > gradle-build.log
+
+          for attempt in 1 2 3; do
+            echo "Gradle build attempt ${attempt}/3" | tee -a gradle-build.log
+            if ./gradlew build --stacktrace --no-daemon --console=plain 2>&1 | tee -a gradle-build.log; then
+              exit 0
+            fi
+
+            if [ "${attempt}" -eq 3 ]; then
+              exit 1
+            fi
+
+            sleep $((attempt * 15))
+          done
 
       - name: Upload Gradle diagnostics
         if: always()
