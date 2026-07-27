@@ -65,6 +65,14 @@ dependencies {
         transitive = false
     }
 
-    //source: https://github.com/Fuzss/forgeconfigapiport
+    //source: https://github.com/Fuzss/modresources
     implementation "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
+
+    testImplementation platform('org.junit:junit-bom:6.0.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+test {
+    useJUnitPlatform()
 }
