@@ -14,6 +14,7 @@ neoForge {
         minecraftVersion = parchment_minecraft
         mappingsVersion = parchment_version
     }
+    addModdingDependenciesTo sourceSets.test
 }
 
 // Declare capabilities on the outgoing configurations.
@@ -67,4 +68,19 @@ dependencies {
 
     //source: https://github.com/Fuzss/forgeconfigapiport
     implementation "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
+}
+
+tasks.named('test', Test) {
+    failOnNoDiscoveredTests = false
+}
+
+tasks.register('serverSubLevelLocationSnapshotSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.api.sublevel.ServerSubLevelLocationSnapshotSelfTest'
+    enableAssertions = true
+}
+
+tasks.named('check') {
+    dependsOn serverSubLevelLocationSnapshotSelfTest
 }
