@@ -70,6 +70,10 @@ dependencies {
     implementation "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
 }
 
+tasks.named('test', Test) {
+    failOnNoDiscoveredTests = false
+}
+
 tasks.register('serverSubLevelLocationSnapshotSelfTest', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
