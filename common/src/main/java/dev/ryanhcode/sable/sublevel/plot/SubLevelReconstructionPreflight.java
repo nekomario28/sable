@@ -130,13 +130,26 @@ public final class SubLevelReconstructionPreflight {
         }
         validateDependencies(data, failures);
 
-        final Pose3d tagPose = SableNBTUtils.readPose3d(tag.getCompound("pose"));
-        if (!finitePose(data.pose()) || !finitePose(tagPose)) {
+        final CompoundTag poseTag = tag.getCompound("pose");
+        if (!validVectorTag(poseTag, "position") ||
+                !validQuaternionTag(poseTag, "orientation") ||
+                !validVectorTag(poseTag, "rotation_point")) {
             failures.add(Failure.INVALID_POSE);
+        } else {
+            final Pose3d tagPose = SableNBTUtils.readPose3d(poseTag);
+            if (!finitePose(data.pose()) || !finitePose(tagPose)) {
+                failures.add(Failure.INVALID_POSE);
+            }
         }
-        final BoundingBox3dc tagBounds = SableNBTUtils.readBoundingBox(tag.getCompound("world_bounds"));
-        if (!validBounds(data.bounds()) || !validBounds(tagBounds)) {
+
+        final CompoundTag boundsTag = tag.getCompound("world_bounds");
+        if (!validBoundsTag(boundsTag)) {
             failures.add(Failure.INVALID_BOUNDS);
+        } else {
+            final BoundingBox3dc tagBounds = SableNBTUtils.readBoundingBox(boundsTag);
+            if (!validBounds(data.bounds()) || !validBounds(tagBounds)) {
+                failures.add(Failure.INVALID_BOUNDS);
+            }
         }
         validateVelocity(tag, "linear_velocity", failures);
         validateVelocity(tag, "angular_velocity", failures);
@@ -245,10 +258,40 @@ public final class SubLevelReconstructionPreflight {
         if (!tag.contains(key)) {
             return;
         }
-        if (!tag.contains(key, Tag.TAG_COMPOUND) ||
+        if (!validVectorTag(tag, key) ||
                 !finiteVector(SableNBTUtils.readVector3d(tag.getCompound(key)))) {
             failures.add(Failure.INVALID_VELOCITY);
         }
+    }
+
+    private static boolean validVectorTag(final CompoundTag owner, final String key) {
+        if (!owner.contains(key, Tag.TAG_COMPOUND)) {
+            return false;
+        }
+        final CompoundTag vector = owner.getCompound(key);
+        return vector.contains("x", Tag.TAG_DOUBLE) &&
+                vector.contains("y", Tag.TAG_DOUBLE) &&
+                vector.contains("z", Tag.TAG_DOUBLE);
+    }
+
+    private static boolean validQuaternionTag(final CompoundTag owner, final String key) {
+        if (!owner.contains(key, Tag.TAG_COMPOUND)) {
+            return false;
+        }
+        final CompoundTag quaternion = owner.getCompound(key);
+        return quaternion.contains("x", Tag.TAG_DOUBLE) &&
+                quaternion.contains("y", Tag.TAG_DOUBLE) &&
+                quaternion.contains("z", Tag.TAG_DOUBLE) &&
+                quaternion.contains("w", Tag.TAG_DOUBLE);
+    }
+
+    private static boolean validBoundsTag(final CompoundTag bounds) {
+        return bounds.contains("minX", Tag.TAG_DOUBLE) &&
+                bounds.contains("minY", Tag.TAG_DOUBLE) &&
+                bounds.contains("minZ", Tag.TAG_DOUBLE) &&
+                bounds.contains("maxX", Tag.TAG_DOUBLE) &&
+                bounds.contains("maxY", Tag.TAG_DOUBLE) &&
+                bounds.contains("maxZ", Tag.TAG_DOUBLE);
     }
 
     private static boolean finitePose(final Pose3d pose) {
