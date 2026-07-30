@@ -24,6 +24,7 @@ public final class SubLevelReconstructionPreflightSelfTest {
     public static void main(final String[] args) {
         validSnapshotIsAccepted();
         nonFinitePoseAndVelocityAreRejected();
+        missingPoseAndVelocityComponentsAreRejected();
         invalidTargetAndPlotMetadataAreRejected();
         invalidChunkAndSectionCoordinatesAreRejected();
         invalidUuidDependencyAndBoundsAreRejected();
@@ -47,6 +48,18 @@ public final class SubLevelReconstructionPreflightSelfTest {
         velocity.putDouble("y", 0.0);
         velocity.putDouble("z", 0.0);
         tag.put("linear_velocity", velocity);
+        final SubLevelReconstructionPreflight.Result result = validate(data(tag));
+        assert result.failures().contains(SubLevelReconstructionPreflight.Failure.INVALID_POSE);
+        assert result.failures().contains(SubLevelReconstructionPreflight.Failure.INVALID_VELOCITY);
+    }
+
+    private static void missingPoseAndVelocityComponentsAreRejected() {
+        final CompoundTag tag = validTag(UUID.randomUUID());
+        tag.getCompound("pose").getCompound("orientation").remove("w");
+        final CompoundTag velocity = new CompoundTag();
+        velocity.putDouble("x", 1.0);
+        velocity.putDouble("y", 2.0);
+        tag.put("angular_velocity", velocity);
         final SubLevelReconstructionPreflight.Result result = validate(data(tag));
         assert result.failures().contains(SubLevelReconstructionPreflight.Failure.INVALID_POSE);
         assert result.failures().contains(SubLevelReconstructionPreflight.Failure.INVALID_VELOCITY);
