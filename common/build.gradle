@@ -14,6 +14,7 @@ neoForge {
         minecraftVersion = parchment_minecraft
         mappingsVersion = parchment_version
     }
+    addModdingDependenciesTo sourceSets.test
 }
 
 // Declare capabilities on the outgoing configurations.
