@@ -235,11 +235,11 @@ public final class ServerSubLevelLocationSnapshot {
         }
     }
 
-    private static final class Accumulator {
+    static final class Accumulator {
         private final Map<UUID, Location> locations = new LinkedHashMap<>();
         private final List<Conflict> conflicts = new ArrayList<>();
 
-        private void register(final UUID uuid, final Location candidate) {
+        void register(final UUID uuid, final Location candidate) {
             Objects.requireNonNull(uuid, "uuid");
             Objects.requireNonNull(candidate, "candidate");
             final Location existing = this.locations.get(uuid);
@@ -264,7 +264,7 @@ public final class ServerSubLevelLocationSnapshot {
             this.conflicts.add(new Conflict(uuid, existing, candidate));
         }
 
-        private Snapshot finish() {
+        Snapshot finish() {
             if (!this.conflicts.isEmpty()) {
                 return new Snapshot(Status.CONFLICTED, this.locations, this.conflicts, null);
             }
