@@ -16,6 +16,7 @@ import java.util.Collections;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 
 /**
  * Read-only target-registry validation for data that can be structurally valid but impossible to
@@ -66,20 +67,27 @@ public final class SubLevelReconstructionRegistryPreflight {
 
         final Registry<Biome> biomeRegistry =
                 targetLevel.registryAccess().registryOrThrow(Registries.BIOME);
-        return validatePlotTag(fullTag.getCompound("plot"), biomeRegistry);
+        return validatePlotTag(
+                fullTag.getCompound("plot"),
+                biomeId -> biomeRegistry.getHolder(ResourceKey.create(Registries.BIOME, biomeId)).isPresent(),
+                blockEntityId -> BuiltInRegistries.BLOCK_ENTITY_TYPE.getOptional(blockEntityId).isPresent()
+        );
     }
 
-    /** Package-private seam for registry-aware executable tests. */
-    static Result validatePlotTag(final CompoundTag plotTag, final Registry<Biome> biomeRegistry) {
+    /** Package-private pure seam for executable registry-reference tests. */
+    static Result validatePlotTag(
+            final CompoundTag plotTag,
+            final Predicate<ResourceLocation> biomeExists,
+            final Predicate<ResourceLocation> blockEntityTypeExists
+    ) {
         Objects.requireNonNull(plotTag, "plotTag");
-        Objects.requireNonNull(biomeRegistry, "biomeRegistry");
+        Objects.requireNonNull(biomeExists, "biomeExists");
+        Objects.requireNonNull(blockEntityTypeExists, "blockEntityTypeExists");
         final EnumSet<Failure> failures = EnumSet.noneOf(Failure.class);
 
         if (plotTag.contains("biome", Tag.TAG_STRING)) {
             final ResourceLocation biomeId = ResourceLocation.tryParse(plotTag.getString("biome"));
-            if (biomeId == null || biomeRegistry.getHolder(
-                    ResourceKey.create(Registries.BIOME, biomeId)
-            ).isEmpty()) {
+            if (biomeId == null || !biomeExists.test(biomeId)) {
                 failures.add(Failure.UNKNOWN_TARGET_BIOME);
             }
         }
@@ -105,8 +113,7 @@ public final class SubLevelReconstructionRegistryPreflight {
                     continue;
                 }
                 final ResourceLocation blockEntityId = ResourceLocation.tryParse(blockEntity.getString("id"));
-                if (blockEntityId == null ||
-                        BuiltInRegistries.BLOCK_ENTITY_TYPE.getOptional(blockEntityId).isEmpty()) {
+                if (blockEntityId == null || !blockEntityTypeExists.test(blockEntityId)) {
                     failures.add(Failure.UNKNOWN_BLOCK_ENTITY_TYPE);
                 }
             }
