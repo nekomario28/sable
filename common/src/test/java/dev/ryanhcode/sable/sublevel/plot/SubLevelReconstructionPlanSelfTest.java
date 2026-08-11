@@ -54,7 +54,7 @@ public final class SubLevelReconstructionPlanSelfTest {
 
         assert plan.uuid().equals(uuid);
         assert plan.targetSlot().equals(new SubLevelReconstructionPreflight.TargetSlot(4, 5));
-        assert plan.pose().position().equals(1.0, 2.0, 3.0);
+        assertPosition(plan.pose(), 1.0, 2.0, 3.0);
         assert plan.dependencies().equals(List.of(dependency));
         assert plan.fullTag().getString("marker").equals("original");
         assert plan.fullTag().getCompound("nested").getInt("value") == 7;
@@ -85,10 +85,21 @@ public final class SubLevelReconstructionPlanSelfTest {
         exportedData.pose().position().set(-1.0, -1.0, -1.0);
         exportedData.fullTag().putString("marker", "changed-again");
 
-        assert plan.pose().position().equals(8.0, 9.0, 10.0);
+        assertPosition(plan.pose(), 8.0, 9.0, 10.0);
         assert plan.fullTag().getString("marker").equals("frozen");
-        assert plan.toData().pose().position().equals(8.0, 9.0, 10.0);
+        assertPosition(plan.toData().pose(), 8.0, 9.0, 10.0);
         assert plan.toData().fullTag().getString("marker").equals("frozen");
+    }
+
+    private static void assertPosition(
+            final Pose3d pose,
+            final double x,
+            final double y,
+            final double z
+    ) {
+        assert pose.position().x() == x;
+        assert pose.position().y() == y;
+        assert pose.position().z() == z;
     }
 
     private static Pose3d pose(final double x, final double y, final double z) {
