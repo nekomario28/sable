@@ -17,8 +17,6 @@ neoForge {
     addModdingDependenciesTo sourceSets.test
 }
 
-// Declare capabilities on the outgoing configurations.
-// Read more about capabilities here: https://docs.gradle.org/current/userguide/component_capabilities.html#sec:declaring-additional-capabilities-for-a-local-component
 ['apiElements', 'runtimeElements', 'sourcesElements'/*, 'javadocElements'*/].each { variant ->
     configurations."$variant".outgoing {
         capability("$group:${base.archivesName.get()}:$version")
@@ -31,14 +29,8 @@ neoForge {
 }
 
 configurations {
-    commonJava {
-        canBeResolved = false
-        canBeConsumed = true
-    }
-    commonResources {
-        canBeResolved = false
-        canBeConsumed = true
-    }
+    commonJava { canBeResolved = false; canBeConsumed = true }
+    commonResources { canBeResolved = false; canBeConsumed = true }
 }
 
 artifacts {
@@ -48,119 +40,40 @@ artifacts {
 
 dependencies {
     compileOnly "net.fabricmc:sponge-mixin:0.15.2+mixin.0.8.7"
-
-    // fabric and neoforge both bundle mixinextras, so it is safe to use it in common
     compileOnly "io.github.llamalad7:mixinextras-common:0.5.3"
     annotationProcessor "io.github.llamalad7:mixinextras-common:0.5.3"
-
     implementation "org.apache.maven:maven-artifact:3.8.5"
-
     api "dev.ryanhcode.sable-companion:sable-companion-common-$minecraft_version:$sable_companion_version"
-
-    implementation("foundry.veil:veil-common-${project.minecraft_version}:${project.veil_version}") {
-        exclude group: "maven.modrinth"
-    }
+    implementation("foundry.veil:veil-common-${project.minecraft_version}:${project.veil_version}") { exclude group: "maven.modrinth" }
     compileOnly("foundry.imguimc:imguimc-common-${project.minecraft_version}:${project.imguimc_version}")
-
-    compileOnly("fuzs.forgeconfigapiport:forgeconfigapiport-fabric:${forgeconfigapiport_version}") {
-        transitive = false
-    }
-
-    //source: https://github.com/Fuzss/forgeconfigapiport
+    compileOnly("fuzs.forgeconfigapiport:forgeconfigapiport-fabric:${forgeconfigapiport_version}") { transitive = false }
     implementation "fuzs.forgeconfigapiport:forgeconfigapiport-common-neoforgeapi:${forgeconfigapiport_version}"
 }
 
-tasks.named('test', Test) {
-    failOnNoDiscoveredTests = false
+tasks.named('test', Test) { failOnNoDiscoveredTests = false }
+
+def selfTests = [
+        serverSubLevelLocationSnapshotSelfTest: 'dev.ryanhcode.sable.api.sublevel.ServerSubLevelLocationSnapshotSelfTest',
+        subLevelReconstructionPreflightSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPreflightSelfTest',
+        subLevelReconstructionPlanSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPlanSelfTest',
+        subLevelReconstructionTransactionSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionTransactionSelfTest',
+        subLevelReconstructionContainerBaselineSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionContainerBaselineSelfTest',
+        subLevelReconstructionAttemptSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionAttemptSelfTest',
+        subLevelReconstructionPayloadPreflightSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPayloadPreflightSelfTest',
+        subLevelReconstructionPublicationPreflightSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPublicationPreflightSelfTest',
+        subLevelReconstructionRegistryPreflightSelfTest: 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionRegistryPreflightSelfTest',
+        physicsSectionTicketReservationSelfTest: 'dev.ryanhcode.sable.sublevel.system.ticket.PhysicsSectionTicketReservationSelfTest',
+        physicsSectionMaterializationSelfTest: 'dev.ryanhcode.sable.sublevel.system.ticket.PhysicsSectionMaterializationSelfTest',
+        subLevelSerializationChunkMetadataSelfTest: 'dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelSerializationChunkMetadataSelfTest'
+]
+
+selfTests.each { taskName, mainClassName ->
+    tasks.register(taskName, JavaExec) {
+        dependsOn testClasses
+        classpath = sourceSets.test.runtimeClasspath
+        mainClass = mainClassName
+        enableAssertions = true
+    }
 }
 
-tasks.register('serverSubLevelLocationSnapshotSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.api.sublevel.ServerSubLevelLocationSnapshotSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionPreflightSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPreflightSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionPlanSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPlanSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionTransactionSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionTransactionSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionContainerBaselineSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionContainerBaselineSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionAttemptSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionAttemptSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionPayloadPreflightSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPayloadPreflightSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelReconstructionPublicationPreflightSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionPublicationPreflightSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('physicsSectionTicketReservationSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.system.ticket.PhysicsSectionTicketReservationSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('physicsSectionMaterializationSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.system.ticket.PhysicsSectionMaterializationSelfTest'
-    enableAssertions = true
-}
-
-tasks.register('subLevelSerializationChunkMetadataSelfTest', JavaExec) {
-    dependsOn testClasses
-    classpath = sourceSets.test.runtimeClasspath
-    mainClass = 'dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelSerializationChunkMetadataSelfTest'
-    enableAssertions = true
-}
-
-tasks.named('check') {
-    dependsOn serverSubLevelLocationSnapshotSelfTest,
-            subLevelReconstructionPreflightSelfTest,
-            subLevelReconstructionPlanSelfTest,
-            subLevelReconstructionTransactionSelfTest,
-            subLevelReconstructionContainerBaselineSelfTest,
-            subLevelReconstructionAttemptSelfTest,
-            subLevelReconstructionPayloadPreflightSelfTest,
-            subLevelReconstructionPublicationPreflightSelfTest,
-            physicsSectionTicketReservationSelfTest,
-            physicsSectionMaterializationSelfTest,
-            subLevelSerializationChunkMetadataSelfTest
-}
+tasks.named('check') { dependsOn selfTests.keySet() }
