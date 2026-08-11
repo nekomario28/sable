@@ -1,6 +1,5 @@
 package dev.ryanhcode.sable.physics.impl.rapier;
 
-import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -23,7 +22,7 @@ final class RapierRuntimeIdAllocatorTest {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         assertEquals(0, allocator.next());
 
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation reservation = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
         assertEquals(1, reservation.runtimeId());
         assertTrue(reservation.open());
 
@@ -36,8 +35,8 @@ final class RapierRuntimeIdAllocatorTest {
     @Test
     void nestedReservationsRollbackInStrictReverseOrder() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation first = allocator.reserve();
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation second = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation first = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation second = allocator.reserve();
         assertEquals(0, first.runtimeId());
         assertEquals(1, second.runtimeId());
 
@@ -50,7 +49,7 @@ final class RapierRuntimeIdAllocatorTest {
     @Test
     void committedReservationIsNotReused() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation reservation = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
         assertEquals(0, reservation.runtimeId());
 
         reservation.commit();
@@ -62,7 +61,7 @@ final class RapierRuntimeIdAllocatorTest {
     @Test
     void unrelatedLaterAllocationMakesRollbackFailClosed() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation reservation = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
         assertEquals(0, reservation.runtimeId());
         assertEquals(1, allocator.next());
 
@@ -74,12 +73,12 @@ final class RapierRuntimeIdAllocatorTest {
     @Test
     void reservationCannotCloseTwice() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation committed = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation committed = allocator.reserve();
         committed.commit();
         assertThrows(IllegalStateException.class, committed::commit);
         assertThrows(IllegalStateException.class, committed::rollback);
 
-        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation rolledBack = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation rolledBack = allocator.reserve();
         rolledBack.rollback();
         assertThrows(IllegalStateException.class, rolledBack::commit);
         assertThrows(IllegalStateException.class, rolledBack::rollback);
