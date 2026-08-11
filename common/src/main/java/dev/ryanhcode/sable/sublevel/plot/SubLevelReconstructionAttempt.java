@@ -13,16 +13,16 @@ import java.util.Set;
  * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
- * input into an immutable plan, verifies current target runtime/physics capabilities, and then
- * captures a fresh target-container rollback baseline. A transaction token is created only after
- * every gate succeeds.</p>
+ * input into an immutable plan, validates deterministic payload codecs/metadata, verifies current
+ * target runtime/physics capabilities, and then captures a fresh target-container rollback
+ * baseline. A transaction token is created only after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -44,6 +44,22 @@ public final class SubLevelReconstructionAttempt {
             failures = immutablePreflightFailures(failures);
             if (failures.isEmpty()) {
                 throw new IllegalArgumentException("Preflight rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
+    public record PayloadRejected(Set<SubLevelReconstructionPayloadPreflight.Failure> failures)
+            implements Preparation {
+        public PayloadRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutablePayloadFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Payload rejection requires failure evidence");
             }
         }
 
@@ -115,6 +131,12 @@ public final class SubLevelReconstructionAttempt {
         }
 
         final SubLevelReconstructionPlan plan = planPreparation.plan().orElseThrow();
+        final SubLevelReconstructionPayloadPreflight.Result payload =
+                SubLevelReconstructionPayloadPreflight.validate(plan);
+        if (!payload.accepted()) {
+            return new PayloadRejected(payload.failures());
+        }
+
         final SubLevelReconstructionRuntimePreflight.Result runtime =
                 SubLevelReconstructionRuntimePreflight.validate(targetLevel);
         if (!runtime.accepted()) {
@@ -162,6 +184,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionPayloadPreflight.Failure> immutablePayloadFailures(
+            final Set<SubLevelReconstructionPayloadPreflight.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionPayloadPreflight.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionPayloadPreflight.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
