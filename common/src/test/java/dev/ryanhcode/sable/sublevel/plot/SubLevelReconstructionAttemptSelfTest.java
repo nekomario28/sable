@@ -12,6 +12,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
 
     public static void main(final String[] args) {
         preflightRejectionOwnsFailureEvidence();
+        payloadRejectionOwnsFailureEvidence();
         runtimeRejectionOwnsFailureEvidence();
         runtimeCapabilitiesFailClosed();
         baselineRejectionOwnsFailureEvidence();
@@ -30,6 +31,21 @@ public final class SubLevelReconstructionAttemptSelfTest {
         assert !rejected.accepted();
         assert rejected.failures().equals(Set.of(
                 SubLevelReconstructionPreflight.Failure.TARGET_SLOT_OCCUPIED
+        ));
+        assertUnsupported(() -> rejected.failures().clear());
+    }
+
+    private static void payloadRejectionOwnsFailureEvidence() {
+        final EnumSet<SubLevelReconstructionPayloadPreflight.Failure> source =
+                EnumSet.of(SubLevelReconstructionPayloadPreflight.Failure.INVALID_BLOCK_STATES);
+        final SubLevelReconstructionAttempt.PayloadRejected rejected =
+                new SubLevelReconstructionAttempt.PayloadRejected(source);
+
+        source.clear();
+
+        assert !rejected.accepted();
+        assert rejected.failures().equals(Set.of(
+                SubLevelReconstructionPayloadPreflight.Failure.INVALID_BLOCK_STATES
         ));
         assertUnsupported(() -> rejected.failures().clear());
     }
@@ -111,6 +127,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
 
     private static void emptyRejectionsAreRejected() {
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PreflightRejected(Set.of()));
+        assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PayloadRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RuntimeRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.BaselineRejected(Set.of()));
     }
