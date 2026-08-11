@@ -11,13 +11,15 @@ import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.neoforge.gametest.GameTestHolder;
+import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 
 @GameTestHolder(Sable.MOD_ID)
+@PrefixGameTestTemplate(false)
 public final class ReconstructionRuntimeIdTest {
     private ReconstructionRuntimeIdTest() {
     }
 
-    @GameTest(template = "gravity")
+    @GameTest(template = "physicstest.gravity")
     public static void reservedRuntimeIdIsAdoptedWithoutSecondAllocation(final GameTestHelper helper) {
         final ServerLevel level = helper.getLevel();
         final ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
