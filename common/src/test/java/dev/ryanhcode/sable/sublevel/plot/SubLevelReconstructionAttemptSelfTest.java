@@ -14,6 +14,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
     public static void main(final String[] args) {
         preflightRejectionOwnsFailureEvidence();
         payloadRejectionOwnsFailureEvidence();
+        registryRejectionOwnsFailureEvidence();
         publicationRejectionOwnsFailureEvidence();
         runtimeRejectionOwnsFailureEvidence();
         runtimeCapabilitiesFailClosed();
@@ -48,6 +49,21 @@ public final class SubLevelReconstructionAttemptSelfTest {
         assert !rejected.accepted();
         assert rejected.failures().equals(Set.of(
                 SubLevelReconstructionPayloadPreflight.Failure.INVALID_BLOCK_STATES
+        ));
+        assertUnsupported(() -> rejected.failures().clear());
+    }
+
+    private static void registryRejectionOwnsFailureEvidence() {
+        final EnumSet<SubLevelReconstructionRegistryPreflight.Failure> source =
+                EnumSet.of(SubLevelReconstructionRegistryPreflight.Failure.UNKNOWN_TARGET_BIOME);
+        final SubLevelReconstructionAttempt.RegistryRejected rejected =
+                new SubLevelReconstructionAttempt.RegistryRejected(source);
+
+        source.clear();
+
+        assert !rejected.accepted();
+        assert rejected.failures().equals(Set.of(
+                SubLevelReconstructionRegistryPreflight.Failure.UNKNOWN_TARGET_BIOME
         ));
         assertUnsupported(() -> rejected.failures().clear());
     }
@@ -149,6 +165,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
     private static void emptyRejectionsAreRejected() {
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PreflightRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PayloadRejected(Set.of()));
+        assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RegistryRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PublicationRejected(Set.of(), Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RuntimeRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.BaselineRejected(Set.of()));
