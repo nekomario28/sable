@@ -218,12 +218,31 @@ public final class PhysicsSectionMaterialization {
     }
 
     /**
-     * Verifies exact ticket ownership and seals the resource after the surrounding transaction commits.
+     * Verifies exact resource ownership without making this materialization terminal.
+     *
+     * <p>A surrounding transaction can verify every resource first and still roll back if a later
+     * verification fails.</p>
+     */
+    public void verifyCommit() {
+        this.requireActive("verify commit");
+        this.ticketReservation.verifyCommit();
+    }
+
+    /**
+     * Makes a previously verified materialization terminal without external pipeline/map mutation.
+     */
+    public void sealCommit() {
+        this.requireActive("seal commit");
+        this.ticketReservation.sealCommit();
+        this.state = State.COMMITTED;
+    }
+
+    /**
+     * Convenience single-resource commit: verify exact ownership, then seal.
      */
     public void commit() {
-        this.requireActive("commit");
-        this.ticketReservation.commit();
-        this.state = State.COMMITTED;
+        this.verifyCommit();
+        this.sealCommit();
     }
 
     /**
