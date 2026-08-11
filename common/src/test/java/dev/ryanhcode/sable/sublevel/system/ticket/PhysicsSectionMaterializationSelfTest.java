@@ -20,6 +20,7 @@ public final class PhysicsSectionMaterializationSelfTest {
         additionFailureCleansSectionAndTicket();
         cleanupContinuesWhenSectionRemovalFails();
         rollbackStackAdapterSurfacesCleanupFailure();
+        commitVerificationRemainsRollbackable();
         commitPreservesSectionTicket();
         System.out.println("PHYSICS_SECTION_MATERIALIZATION_SELF_TEST: PASS");
     }
@@ -144,13 +145,34 @@ public final class PhysicsSectionMaterializationSelfTest {
         after.rollback();
     }
 
-    private static void commitPreservesSectionTicket() {
+    private static void commitVerificationRemainsRollbackable() {
         final PhysicsChunkTicketManager manager = new PhysicsChunkTicketManager();
         final PipelineProbe probe = new PipelineProbe();
         final SectionPos pos = SectionPos.of(16, 17, 18);
         final PhysicsSectionMaterialization materialization = acquired(
                 PhysicsSectionMaterialization.acquire(
                         manager, probe.pipeline(), section(), pos, 21L, true
+                )
+        );
+
+        materialization.verifyCommit();
+
+        assert materialization.state() == PhysicsSectionMaterialization.State.ACTIVE;
+        assert materialization.rollback().successful();
+        assert probe.events.equals(List.of("add:true", "remove"));
+
+        final PhysicsSectionTicketReservation after = manager.reserveTicketForSection(pos, 22L);
+        assert after.owned();
+        after.rollback();
+    }
+
+    private static void commitPreservesSectionTicket() {
+        final PhysicsChunkTicketManager manager = new PhysicsChunkTicketManager();
+        final PipelineProbe probe = new PipelineProbe();
+        final SectionPos pos = SectionPos.of(19, 20, 21);
+        final PhysicsSectionMaterialization materialization = acquired(
+                PhysicsSectionMaterialization.acquire(
+                        manager, probe.pipeline(), section(), pos, 23L, true
                 )
         );
 
@@ -161,7 +183,7 @@ public final class PhysicsSectionMaterializationSelfTest {
         assertIllegalState(materialization::rollback);
         assert probe.events.equals(List.of("add:true"));
 
-        final PhysicsSectionTicketReservation borrowed = manager.reserveTicketForSection(pos, 22L);
+        final PhysicsSectionTicketReservation borrowed = manager.reserveTicketForSection(pos, 24L);
         assert !borrowed.owned();
         borrowed.rollback();
     }
