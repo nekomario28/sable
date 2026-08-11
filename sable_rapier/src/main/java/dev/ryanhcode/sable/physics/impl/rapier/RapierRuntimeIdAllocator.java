@@ -1,6 +1,5 @@
 package dev.ryanhcode.sable.physics.impl.rapier;
 
-import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import org.jetbrains.annotations.ApiStatus;
 
 import java.util.Objects;
@@ -35,7 +34,7 @@ final class RapierRuntimeIdAllocator {
     }
 
     @ApiStatus.Internal
-    static final class Reservation implements SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation {
+    static final class Reservation {
         private enum State {
             OPEN,
             COMMITTED,
@@ -51,26 +50,22 @@ final class RapierRuntimeIdAllocator {
             this.id = id;
         }
 
-        @Override
-        public synchronized int runtimeId() {
+        synchronized int id() {
             return this.id;
         }
 
-        @Override
-        public synchronized boolean open() {
+        synchronized boolean open() {
             return this.state == State.OPEN;
         }
 
-        @Override
-        public synchronized void commit() {
+        synchronized void commit() {
             if (this.state != State.OPEN) {
                 throw new IllegalStateException("Runtime ID reservation is already closed: " + this.state);
             }
             this.state = State.COMMITTED;
         }
 
-        @Override
-        public synchronized void rollback() {
+        synchronized void rollback() {
             if (this.state != State.OPEN) {
                 throw new IllegalStateException("Runtime ID reservation is already closed: " + this.state);
             }
