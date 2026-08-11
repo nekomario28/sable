@@ -29,6 +29,35 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     @Override
     public RuntimeIdReservation reserveReconstructionRuntimeId() {
-        return RUNTIME_IDS.reserve();
+        return new RuntimeIdReservationAdapter(RUNTIME_IDS.reserve());
+    }
+
+    private record RuntimeIdReservationAdapter(RapierRuntimeIdAllocator.Reservation delegate)
+            implements RuntimeIdReservation {
+        private RuntimeIdReservationAdapter {
+            if (delegate == null) {
+                throw new NullPointerException("delegate");
+            }
+        }
+
+        @Override
+        public int runtimeId() {
+            return this.delegate.id();
+        }
+
+        @Override
+        public boolean open() {
+            return this.delegate.open();
+        }
+
+        @Override
+        public void commit() {
+            this.delegate.commit();
+        }
+
+        @Override
+        public void rollback() {
+            this.delegate.rollback();
+        }
     }
 }
