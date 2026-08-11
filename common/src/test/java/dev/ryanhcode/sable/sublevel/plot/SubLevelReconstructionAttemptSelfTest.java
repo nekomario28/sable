@@ -140,22 +140,35 @@ public final class SubLevelReconstructionAttemptSelfTest {
 
     private static void runtimeCapabilitiesFailClosed() {
         final SubLevelReconstructionRuntimePreflight.Result noPhysics =
-                SubLevelReconstructionRuntimePreflight.validateCapabilities(false, null);
+                SubLevelReconstructionRuntimePreflight.validateCapabilities(false, false, null);
         assert !noPhysics.accepted();
         assert noPhysics.failures().equals(Set.of(
                 SubLevelReconstructionRuntimePreflight.Failure.PHYSICS_SYSTEM_UNAVAILABLE
         ));
 
         final SubLevelReconstructionRuntimePreflight.Result noOptIn =
-                SubLevelReconstructionRuntimePreflight.validateCapabilities(true, null);
+                SubLevelReconstructionRuntimePreflight.validateCapabilities(true, false, null);
         assert !noOptIn.accepted();
         assert noOptIn.failures().equals(Set.of(
+                SubLevelReconstructionRuntimePreflight.Failure.RUNTIME_ID_RESERVATION_UNAVAILABLE,
                 SubLevelReconstructionRuntimePreflight.Failure.EXACT_SECTION_ROLLBACK_UNAVAILABLE,
                 SubLevelReconstructionRuntimePreflight.Failure.PROVISIONAL_BODY_LIFECYCLE_UNAVAILABLE
         ));
 
+        final SubLevelReconstructionRuntimePreflight.Result capabilityWithoutOperation =
+                SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
+                        false,
+                        new SubLevelReconstructionPhysicsSupport.Capabilities(true, true)
+                );
+        assert !capabilityWithoutOperation.accepted();
+        assert capabilityWithoutOperation.failures().equals(Set.of(
+                SubLevelReconstructionRuntimePreflight.Failure.RUNTIME_ID_RESERVATION_UNAVAILABLE
+        ));
+
         final SubLevelReconstructionRuntimePreflight.Result sectionOnly =
                 SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
                         true,
                         new SubLevelReconstructionPhysicsSupport.Capabilities(true, false)
                 );
@@ -167,6 +180,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
         final SubLevelReconstructionRuntimePreflight.Result bodyOnly =
                 SubLevelReconstructionRuntimePreflight.validateCapabilities(
                         true,
+                        true,
                         new SubLevelReconstructionPhysicsSupport.Capabilities(false, true)
                 );
         assert !bodyOnly.accepted();
@@ -176,6 +190,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
 
         final SubLevelReconstructionRuntimePreflight.Result complete =
                 SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
                         true,
                         new SubLevelReconstructionPhysicsSupport.Capabilities(true, true)
                 );
