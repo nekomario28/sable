@@ -13,15 +13,16 @@ import java.util.Set;
  * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
- * input into an immutable plan, and then captures a fresh target-container rollback baseline. A
- * transaction token is created only after both gates succeed.</p>
+ * input into an immutable plan, verifies current target runtime/physics capabilities, and then
+ * captures a fresh target-container rollback baseline. A transaction token is created only after
+ * every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -43,6 +44,22 @@ public final class SubLevelReconstructionAttempt {
             failures = immutablePreflightFailures(failures);
             if (failures.isEmpty()) {
                 throw new IllegalArgumentException("Preflight rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
+    public record RuntimeRejected(Set<SubLevelReconstructionRuntimePreflight.Failure> failures)
+            implements Preparation {
+        public RuntimeRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutableRuntimeFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Runtime rejection requires failure evidence");
             }
         }
 
@@ -98,6 +115,12 @@ public final class SubLevelReconstructionAttempt {
         }
 
         final SubLevelReconstructionPlan plan = planPreparation.plan().orElseThrow();
+        final SubLevelReconstructionRuntimePreflight.Result runtime =
+                SubLevelReconstructionRuntimePreflight.validate(targetLevel);
+        if (!runtime.accepted()) {
+            return new RuntimeRejected(runtime.failures());
+        }
+
         final SubLevelReconstructionContainerBaseline.Capture baselineCapture =
                 SubLevelReconstructionContainerBaseline.capture(targetLevel, plan);
         if (!baselineCapture.accepted()) {
@@ -139,6 +162,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionRuntimePreflight.Failure> immutableRuntimeFailures(
+            final Set<SubLevelReconstructionRuntimePreflight.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionRuntimePreflight.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionRuntimePreflight.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
