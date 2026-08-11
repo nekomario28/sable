@@ -23,13 +23,6 @@ import java.util.UUID;
 
 /** Assertion-based executable for detached decoded reconstruction payloads. */
 public final class SubLevelReconstructionDecodedPayloadSelfTest {
-    private static final Codec<PalettedContainer<BlockState>> BLOCK_STATE_CODEC = PalettedContainer.codecRW(
-            Block.BLOCK_STATE_REGISTRY,
-            BlockState.CODEC,
-            PalettedContainer.Strategy.SECTION_STATES,
-            Blocks.AIR.defaultBlockState()
-    );
-
     private SubLevelReconstructionDecodedPayloadSelfTest() {
     }
 
@@ -178,7 +171,7 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
                 state,
                 PalettedContainer.Strategy.SECTION_STATES
         );
-        section.put("block_states", BLOCK_STATE_CODEC.encodeStart(NbtOps.INSTANCE, states).getOrThrow());
+        section.put("block_states", blockStateCodec().encodeStart(NbtOps.INSTANCE, states).getOrThrow());
         sections.put(sectionIndex, section);
         chunk.put("sections", sections);
 
@@ -187,6 +180,15 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         chunk.put("heightmaps", new CompoundTag());
         chunk.put("block_entities", new ListTag());
         return new ChunkInput(localKey, chunk);
+    }
+
+    private static Codec<PalettedContainer<BlockState>> blockStateCodec() {
+        return PalettedContainer.codecRW(
+                Block.BLOCK_STATE_REGISTRY,
+                BlockState.CODEC,
+                PalettedContainer.Strategy.SECTION_STATES,
+                Blocks.AIR.defaultBlockState()
+        );
     }
 
     private static void assertUnsupported(final Runnable operation) {
