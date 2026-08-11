@@ -16,6 +16,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
         payloadRejectionOwnsFailureEvidence();
         registryRejectionOwnsFailureEvidence();
         publicationRejectionOwnsFailureEvidence();
+        entityRejectionOwnsFailureEvidence();
         runtimeRejectionOwnsFailureEvidence();
         runtimeCapabilitiesFailClosed();
         baselineRejectionOwnsFailureEvidence();
@@ -83,6 +84,25 @@ public final class SubLevelReconstructionAttemptSelfTest {
                 SubLevelReconstructionPublicationPreflight.Failure.TARGET_CHUNK_VISIBLE
         ));
         assert rejected.blockedChunkKeys().equals(Set.of(42L));
+        assertUnsupported(() -> rejected.failures().clear());
+        assertUnsupported(() -> rejected.blockedChunkKeys().clear());
+    }
+
+    private static void entityRejectionOwnsFailureEvidence() {
+        final EnumSet<SubLevelReconstructionEntityPreflight.Failure> failures =
+                EnumSet.of(SubLevelReconstructionEntityPreflight.Failure.TARGET_ENTITY_RESIDUE);
+        final HashSet<Long> blocked = new HashSet<>(Set.of(84L));
+        final SubLevelReconstructionAttempt.EntityRejected rejected =
+                new SubLevelReconstructionAttempt.EntityRejected(failures, blocked);
+
+        failures.clear();
+        blocked.clear();
+
+        assert !rejected.accepted();
+        assert rejected.failures().equals(Set.of(
+                SubLevelReconstructionEntityPreflight.Failure.TARGET_ENTITY_RESIDUE
+        ));
+        assert rejected.blockedChunkKeys().equals(Set.of(84L));
         assertUnsupported(() -> rejected.failures().clear());
         assertUnsupported(() -> rejected.blockedChunkKeys().clear());
     }
@@ -167,6 +187,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PayloadRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RegistryRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PublicationRejected(Set.of(), Set.of()));
+        assertIllegalArgument(() -> new SubLevelReconstructionAttempt.EntityRejected(Set.of(), Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RuntimeRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.BaselineRejected(Set.of()));
     }
