@@ -16,15 +16,15 @@ import java.util.Set;
  * input into an immutable plan, validates deterministic payload codecs/metadata and target registry
  * availability, verifies target ChunkMap publication coordinates and entity sections are clean,
  * requires platform callbacks to be staging/defer safe, verifies current target physics
- * capabilities, and then captures a fresh target-container rollback baseline. A transaction token
- * is created only after every gate succeeds.</p>
+ * capabilities, freezes a canonical staged payload, and then captures a fresh target-container
+ * rollback baseline. A transaction token is created only after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, PublicationRejected, EntityRejected, PlatformRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, PublicationRejected, EntityRejected, PlatformRejected, RuntimeRejected, StagingRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -159,6 +159,22 @@ public final class SubLevelReconstructionAttempt {
         }
     }
 
+    public record StagingRejected(Set<SubLevelReconstructionStagedPayload.Failure> failures)
+            implements Preparation {
+        public StagingRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutableStagingFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Staging rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
     public record BaselineRejected(Set<SubLevelReconstructionContainerBaseline.Failure> failures)
             implements Preparation {
         public BaselineRejected {
@@ -177,16 +193,19 @@ public final class SubLevelReconstructionAttempt {
 
     private final ServerLevel targetLevel;
     private final SubLevelReconstructionPlan plan;
+    private final SubLevelReconstructionStagedPayload stagedPayload;
     private final SubLevelReconstructionContainerBaseline baseline;
     private final SubLevelReconstructionTransaction transaction;
 
     private SubLevelReconstructionAttempt(
             final ServerLevel targetLevel,
             final SubLevelReconstructionPlan plan,
+            final SubLevelReconstructionStagedPayload stagedPayload,
             final SubLevelReconstructionContainerBaseline baseline
     ) {
         this.targetLevel = Objects.requireNonNull(targetLevel, "targetLevel");
         this.plan = Objects.requireNonNull(plan, "plan");
+        this.stagedPayload = Objects.requireNonNull(stagedPayload, "stagedPayload");
         this.baseline = Objects.requireNonNull(baseline, "baseline");
         this.transaction = new SubLevelReconstructionTransaction(plan);
     }
@@ -241,6 +260,13 @@ public final class SubLevelReconstructionAttempt {
             return new RuntimeRejected(runtime.failures());
         }
 
+        final SubLevelReconstructionStagedPayload.Capture stagedCapture =
+                SubLevelReconstructionStagedPayload.capture(targetLevel, plan);
+        if (!stagedCapture.accepted()) {
+            return new StagingRejected(stagedCapture.failures());
+        }
+        final SubLevelReconstructionStagedPayload stagedPayload = stagedCapture.payload().orElseThrow();
+
         final SubLevelReconstructionContainerBaseline.Capture baselineCapture =
                 SubLevelReconstructionContainerBaseline.capture(targetLevel, plan);
         if (!baselineCapture.accepted()) {
@@ -250,6 +276,7 @@ public final class SubLevelReconstructionAttempt {
         return new Prepared(new SubLevelReconstructionAttempt(
                 targetLevel,
                 plan,
+                stagedPayload,
                 baselineCapture.baseline().orElseThrow()
         ));
     }
@@ -265,6 +292,11 @@ public final class SubLevelReconstructionAttempt {
     @ApiStatus.Internal
     ServerLevel targetLevel() {
         return this.targetLevel;
+    }
+
+    @ApiStatus.Internal
+    SubLevelReconstructionStagedPayload stagedPayload() {
+        return this.stagedPayload;
     }
 
     @ApiStatus.Internal
@@ -336,6 +368,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionRuntimePreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionRuntimePreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionStagedPayload.Failure> immutableStagingFailures(
+            final Set<SubLevelReconstructionStagedPayload.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionStagedPayload.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionStagedPayload.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
