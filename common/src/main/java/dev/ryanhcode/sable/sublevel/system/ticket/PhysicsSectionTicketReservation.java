@@ -62,14 +62,30 @@ public final class PhysicsSectionTicketReservation {
     }
 
     /**
-     * Seals the reservation after the reconstruction transaction commits.
+     * Verifies that the exact reserved ticket can be committed without making the reservation terminal.
      *
-     * <p>The manager first verifies the exact reserved ticket is still installed.</p>
+     * <p>This is intentionally separate from sealing so a coordinator can verify every transaction
+     * resource first and still roll all of them back if a later verification fails.</p>
+     */
+    void verifyCommit() {
+        this.requireActive("verify commit");
+        this.manager.verifyReservation(this);
+    }
+
+    /**
+     * Makes a previously verified reservation terminal without performing any external mutation.
+     */
+    void sealCommit() {
+        this.requireActive("seal commit");
+        this.state = State.COMMITTED;
+    }
+
+    /**
+     * Convenience single-resource commit: verify exact ownership, then seal.
      */
     public void commit() {
-        this.requireActive("commit");
-        this.manager.verifyReservation(this);
-        this.state = State.COMMITTED;
+        this.verifyCommit();
+        this.sealCommit();
     }
 
     /**
