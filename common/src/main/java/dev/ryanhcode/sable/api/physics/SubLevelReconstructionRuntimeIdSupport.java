@@ -44,10 +44,17 @@ public interface SubLevelReconstructionRuntimeIdSupport {
         /** @return whether this reservation can still be committed or rolled back */
         boolean open();
 
-        /** Makes this runtime ID allocation permanent. */
+        /**
+         * Makes this runtime ID allocation permanent.
+         * If this method throws, the reservation must remain open and rollbackable.
+         */
         void commit();
 
-        /** Restores exact allocator state or fails without pretending rollback succeeded. */
+        /**
+         * Restores exact allocator state.
+         * If exact restoration is impossible this method must throw before closing the reservation,
+         * leaving it open rather than pretending rollback succeeded.
+         */
         void rollback();
     }
 }
