@@ -8,7 +8,8 @@ neoForge {
     // Automatically enable AccessTransformers if the file exists
     def at = file('src/main/resources/META-INF/accesstransformer.cfg')
     if (at.exists()) {
-        accessTransformers.from(at.absolutePath)
+        accessTransformers.from(at.absolutePath
+        )
     }
     parchment {
         minecraftVersion = parchment_minecraft
@@ -109,10 +110,18 @@ tasks.register('subLevelReconstructionContainerBaselineSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionAttemptSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionAttemptSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
             subLevelReconstructionPlanSelfTest,
             subLevelReconstructionTransactionSelfTest,
-            subLevelReconstructionContainerBaselineSelfTest
+            subLevelReconstructionContainerBaselineSelfTest,
+            subLevelReconstructionAttemptSelfTest
 }
