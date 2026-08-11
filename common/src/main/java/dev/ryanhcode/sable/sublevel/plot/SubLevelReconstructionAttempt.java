@@ -13,17 +13,17 @@ import java.util.Set;
  * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
- * input into an immutable plan, validates deterministic payload codecs/metadata, verifies target
- * ChunkMap publication coordinates are clean, verifies current target runtime/physics capabilities,
- * and then captures a fresh target-container rollback baseline. A transaction token is created only
- * after every gate succeeds.</p>
+ * input into an immutable plan, validates deterministic payload codecs/metadata and target registry
+ * availability, verifies target ChunkMap publication coordinates are clean, verifies current target
+ * runtime/physics capabilities, and then captures a fresh target-container rollback baseline. A
+ * transaction token is created only after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, PublicationRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, PublicationRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -61,6 +61,22 @@ public final class SubLevelReconstructionAttempt {
             failures = immutablePayloadFailures(failures);
             if (failures.isEmpty()) {
                 throw new IllegalArgumentException("Payload rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
+    public record RegistryRejected(Set<SubLevelReconstructionRegistryPreflight.Failure> failures)
+            implements Preparation {
+        public RegistryRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutableRegistryFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Registry rejection requires failure evidence");
             }
         }
 
@@ -158,6 +174,12 @@ public final class SubLevelReconstructionAttempt {
             return new PayloadRejected(payload.failures());
         }
 
+        final SubLevelReconstructionRegistryPreflight.Result registry =
+                SubLevelReconstructionRegistryPreflight.validate(targetLevel, plan);
+        if (!registry.accepted()) {
+            return new RegistryRejected(registry.failures());
+        }
+
         final SubLevelReconstructionPublicationPreflight.Result publication =
                 SubLevelReconstructionPublicationPreflight.validate(targetLevel, plan);
         if (!publication.accepted()) {
@@ -220,6 +242,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionPayloadPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionPayloadPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionRegistryPreflight.Failure> immutableRegistryFailures(
+            final Set<SubLevelReconstructionRegistryPreflight.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionRegistryPreflight.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionRegistryPreflight.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
