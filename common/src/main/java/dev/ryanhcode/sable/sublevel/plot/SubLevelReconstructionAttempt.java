@@ -15,15 +15,16 @@ import java.util.Set;
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
  * input into an immutable plan, validates deterministic payload codecs/metadata and target registry
  * availability, verifies target ChunkMap publication coordinates and entity sections are clean,
- * verifies current target runtime/physics capabilities, and then captures a fresh target-container
- * rollback baseline. A transaction token is created only after every gate succeeds.</p>
+ * requires platform callbacks to be staging/defer safe, verifies current target physics
+ * capabilities, and then captures a fresh target-container rollback baseline. A transaction token
+ * is created only after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, PublicationRejected, EntityRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, PublicationRejected, EntityRejected, PlatformRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -126,6 +127,22 @@ public final class SubLevelReconstructionAttempt {
         }
     }
 
+    public record PlatformRejected(Set<SubLevelReconstructionPlatformPreflight.Failure> failures)
+            implements Preparation {
+        public PlatformRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutablePlatformFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Platform rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
     public record RuntimeRejected(Set<SubLevelReconstructionRuntimePreflight.Failure> failures)
             implements Preparation {
         public RuntimeRejected {
@@ -212,6 +229,12 @@ public final class SubLevelReconstructionAttempt {
             return new EntityRejected(entities.failures(), entities.blockedChunkKeys());
         }
 
+        final SubLevelReconstructionPlatformPreflight.Result platform =
+                SubLevelReconstructionPlatformPreflight.validate();
+        if (!platform.accepted()) {
+            return new PlatformRejected(platform.failures());
+        }
+
         final SubLevelReconstructionRuntimePreflight.Result runtime =
                 SubLevelReconstructionRuntimePreflight.validate(targetLevel);
         if (!runtime.accepted()) {
@@ -295,6 +318,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionEntityPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionEntityPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionPlatformPreflight.Failure> immutablePlatformFailures(
+            final Set<SubLevelReconstructionPlatformPreflight.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionPlatformPreflight.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionPlatformPreflight.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
