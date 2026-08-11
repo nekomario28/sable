@@ -13,16 +13,17 @@ import java.util.Set;
  * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
- * input into an immutable plan, validates deterministic payload codecs/metadata, verifies current
- * target runtime/physics capabilities, and then captures a fresh target-container rollback
- * baseline. A transaction token is created only after every gate succeeds.</p>
+ * input into an immutable plan, validates deterministic payload codecs/metadata, verifies target
+ * ChunkMap publication coordinates are clean, verifies current target runtime/physics capabilities,
+ * and then captures a fresh target-container rollback baseline. A transaction token is created only
+ * after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, PublicationRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -60,6 +61,26 @@ public final class SubLevelReconstructionAttempt {
             failures = immutablePayloadFailures(failures);
             if (failures.isEmpty()) {
                 throw new IllegalArgumentException("Payload rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
+    public record PublicationRejected(
+            Set<SubLevelReconstructionPublicationPreflight.Failure> failures,
+            Set<Long> blockedChunkKeys
+    ) implements Preparation {
+        public PublicationRejected {
+            Objects.requireNonNull(failures, "failures");
+            Objects.requireNonNull(blockedChunkKeys, "blockedChunkKeys");
+            failures = immutablePublicationFailures(failures);
+            blockedChunkKeys = Set.copyOf(blockedChunkKeys);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Publication rejection requires failure evidence");
             }
         }
 
@@ -137,6 +158,12 @@ public final class SubLevelReconstructionAttempt {
             return new PayloadRejected(payload.failures());
         }
 
+        final SubLevelReconstructionPublicationPreflight.Result publication =
+                SubLevelReconstructionPublicationPreflight.validate(targetLevel, plan);
+        if (!publication.accepted()) {
+            return new PublicationRejected(publication.failures(), publication.blockedChunkKeys());
+        }
+
         final SubLevelReconstructionRuntimePreflight.Result runtime =
                 SubLevelReconstructionRuntimePreflight.validate(targetLevel);
         if (!runtime.accepted()) {
@@ -193,6 +220,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionPayloadPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionPayloadPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionPublicationPreflight.Failure> immutablePublicationFailures(
+            final Set<SubLevelReconstructionPublicationPreflight.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionPublicationPreflight.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionPublicationPreflight.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
