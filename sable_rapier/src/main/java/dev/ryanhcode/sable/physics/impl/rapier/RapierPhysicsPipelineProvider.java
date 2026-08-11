@@ -9,6 +9,6 @@ public final class RapierPhysicsPipelineProvider implements PhysicsPipelineProvi
 
     @Override
     public @NotNull PhysicsPipeline createPipeline(@NotNull final ServerLevel level) {
-        return new RapierPhysicsPipeline(level);
+        return new TransactionalRapierPhysicsPipeline(level);
     }
 }
