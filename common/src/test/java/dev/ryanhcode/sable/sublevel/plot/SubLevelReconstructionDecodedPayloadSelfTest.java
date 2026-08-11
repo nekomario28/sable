@@ -17,6 +17,8 @@ import net.minecraft.world.level.chunk.PalettedContainer;
 import org.joml.Quaterniond;
 import org.joml.Vector3d;
 
+import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -33,6 +35,7 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         invalidSectionIndexFailsClosed();
         repeatedFailureTracksEveryChunk();
         decodedCopiesAreDefensivelyOwned();
+        decodeRejectionOwnsFailureEvidence();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_DECODED_PAYLOAD_SELF_TEST: PASS");
     }
 
@@ -118,6 +121,26 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         assertUnsupported(() -> decoded.blockEntities().clear());
     }
 
+    private static void decodeRejectionOwnsFailureEvidence() {
+        final EnumSet<SubLevelReconstructionDecodedPayload.Failure> failures =
+                EnumSet.of(SubLevelReconstructionDecodedPayload.Failure.INVALID_SECTION_INDEX);
+        final HashSet<Long> failedChunkKeys = new HashSet<>(Set.of(42L, 84L));
+        final SubLevelReconstructionAttempt.DecodeRejected rejected =
+                new SubLevelReconstructionAttempt.DecodeRejected(failures, failedChunkKeys);
+
+        failures.clear();
+        failedChunkKeys.clear();
+
+        assert !rejected.accepted();
+        assert rejected.failures().equals(Set.of(
+                SubLevelReconstructionDecodedPayload.Failure.INVALID_SECTION_INDEX
+        ));
+        assert rejected.failedChunkKeys().equals(Set.of(42L, 84L));
+        assertUnsupported(() -> rejected.failures().clear());
+        assertUnsupported(() -> rejected.failedChunkKeys().clear());
+        assertIllegalArgument(() -> new SubLevelReconstructionAttempt.DecodeRejected(Set.of(), Set.of()));
+    }
+
     private static SubLevelReconstructionStagedPayload staged(final List<ChunkInput> chunks) {
         final UUID uuid = UUID.randomUUID();
         final CompoundTag fullTag = new CompoundTag();
@@ -196,6 +219,16 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         try {
             operation.run();
         } catch (final UnsupportedOperationException expected) {
+            threw = true;
+        }
+        assert threw;
+    }
+
+    private static void assertIllegalArgument(final Runnable operation) {
+        boolean threw = false;
+        try {
+            operation.run();
+        } catch (final IllegalArgumentException expected) {
             threw = true;
         }
         assert threw;
