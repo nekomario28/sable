@@ -19,7 +19,7 @@ public final class PhysicsSectionMaterializationSelfTest {
         borrowedSectionIsNeverUploadedOrRemoved();
         additionFailureCleansSectionAndTicket();
         cleanupContinuesWhenSectionRemovalFails();
-        rollbackContinuesWhenSectionRemovalFails();
+        rollbackStackAdapterSurfacesCleanupFailure();
         commitPreservesSectionTicket();
         System.out.println("PHYSICS_SECTION_MATERIALIZATION_SELF_TEST: PASS");
     }
@@ -114,7 +114,7 @@ public final class PhysicsSectionMaterializationSelfTest {
         after.rollback();
     }
 
-    private static void rollbackContinuesWhenSectionRemovalFails() {
+    private static void rollbackStackAdapterSurfacesCleanupFailure() {
         final PhysicsChunkTicketManager manager = new PhysicsChunkTicketManager();
         final PipelineProbe probe = new PipelineProbe();
         final SectionPos pos = SectionPos.of(13, 14, 15);
@@ -125,13 +125,20 @@ public final class PhysicsSectionMaterializationSelfTest {
         );
         probe.failRemoval = true;
 
-        final PhysicsSectionMaterialization.RollbackReport rollback = materialization.rollback();
+        PhysicsSectionMaterialization.RollbackException thrown = null;
+        try {
+            materialization.rollbackOrThrow();
+        } catch (final PhysicsSectionMaterialization.RollbackException exception) {
+            thrown = exception;
+        }
 
-        assert !rollback.successful();
-        assert rollback.state() == PhysicsSectionMaterialization.State.ROLLBACK_FAILED;
-        assert rollback.failures().size() == 1;
-        assert rollback.failures().getFirst().resource().equals("physics_section");
+        assert thrown != null;
+        assert thrown.report().state() == PhysicsSectionMaterialization.State.ROLLBACK_FAILED;
+        assert thrown.report().failures().size() == 1;
+        assert thrown.report().failures().getFirst().resource().equals("physics_section");
+        assert materialization.state() == PhysicsSectionMaterialization.State.ROLLBACK_FAILED;
 
+        // Ticket cleanup still ran even though section cleanup failed.
         final PhysicsSectionTicketReservation after = manager.reserveTicketForSection(pos, 20L);
         assert after.owned();
         after.rollback();
