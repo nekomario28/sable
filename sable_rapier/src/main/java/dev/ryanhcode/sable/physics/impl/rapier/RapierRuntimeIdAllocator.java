@@ -61,10 +61,14 @@ final class RapierRuntimeIdAllocator {
         }
     }
 
-    private synchronized void rollback(final int id) {
+    private synchronized void assertCanClose(final int id) {
         if (this.activeClaimScope != null && this.activeClaimScope.runtimeId == id) {
-            throw new IllegalStateException("Cannot roll back a runtime ID while its adoption scope is active");
+            throw new IllegalStateException("Cannot close a runtime ID while its adoption scope is active");
         }
+    }
+
+    private synchronized void rollback(final int id) {
+        this.assertCanClose(id);
         if (this.nextId != id + 1) {
             throw new IllegalStateException(
                     "Cannot roll back runtime ID %d after a later ID was allocated".formatted(id)
@@ -104,18 +108,18 @@ final class RapierRuntimeIdAllocator {
 
         private final RapierRuntimeIdAllocator allocator;
         private final int id;
-        private State state = State.OPEN;
+        private volatile State state = State.OPEN;
 
         private Reservation(final RapierRuntimeIdAllocator allocator, final int id) {
             this.allocator = Objects.requireNonNull(allocator, "allocator");
             this.id = id;
         }
 
-        synchronized int id() {
+        int id() {
             return this.id;
         }
 
-        synchronized boolean open() {
+        boolean open() {
             return this.state == State.OPEN;
         }
 
@@ -123,6 +127,7 @@ final class RapierRuntimeIdAllocator {
             if (this.state != State.OPEN) {
                 throw new IllegalStateException("Runtime ID reservation is already closed: " + this.state);
             }
+            this.allocator.assertCanClose(this.id);
             this.state = State.COMMITTED;
         }
 
