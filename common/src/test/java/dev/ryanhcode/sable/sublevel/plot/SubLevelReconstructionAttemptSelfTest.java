@@ -3,6 +3,7 @@ package dev.ryanhcode.sable.sublevel.plot;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 
 import java.util.EnumSet;
+import java.util.HashSet;
 import java.util.Set;
 
 /** Assertion-based executable for prepared-attempt result semantics. */
@@ -13,6 +14,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
     public static void main(final String[] args) {
         preflightRejectionOwnsFailureEvidence();
         payloadRejectionOwnsFailureEvidence();
+        publicationRejectionOwnsFailureEvidence();
         runtimeRejectionOwnsFailureEvidence();
         runtimeCapabilitiesFailClosed();
         baselineRejectionOwnsFailureEvidence();
@@ -48,6 +50,25 @@ public final class SubLevelReconstructionAttemptSelfTest {
                 SubLevelReconstructionPayloadPreflight.Failure.INVALID_BLOCK_STATES
         ));
         assertUnsupported(() -> rejected.failures().clear());
+    }
+
+    private static void publicationRejectionOwnsFailureEvidence() {
+        final EnumSet<SubLevelReconstructionPublicationPreflight.Failure> failures =
+                EnumSet.of(SubLevelReconstructionPublicationPreflight.Failure.TARGET_CHUNK_VISIBLE);
+        final HashSet<Long> blocked = new HashSet<>(Set.of(42L));
+        final SubLevelReconstructionAttempt.PublicationRejected rejected =
+                new SubLevelReconstructionAttempt.PublicationRejected(failures, blocked);
+
+        failures.clear();
+        blocked.clear();
+
+        assert !rejected.accepted();
+        assert rejected.failures().equals(Set.of(
+                SubLevelReconstructionPublicationPreflight.Failure.TARGET_CHUNK_VISIBLE
+        ));
+        assert rejected.blockedChunkKeys().equals(Set.of(42L));
+        assertUnsupported(() -> rejected.failures().clear());
+        assertUnsupported(() -> rejected.blockedChunkKeys().clear());
     }
 
     private static void runtimeRejectionOwnsFailureEvidence() {
@@ -128,6 +149,7 @@ public final class SubLevelReconstructionAttemptSelfTest {
     private static void emptyRejectionsAreRejected() {
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PreflightRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PayloadRejected(Set.of()));
+        assertIllegalArgument(() -> new SubLevelReconstructionAttempt.PublicationRejected(Set.of(), Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.RuntimeRejected(Set.of()));
         assertIllegalArgument(() -> new SubLevelReconstructionAttempt.BaselineRejected(Set.of()));
     }
