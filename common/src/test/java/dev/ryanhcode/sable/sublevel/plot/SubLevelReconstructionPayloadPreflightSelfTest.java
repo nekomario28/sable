@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.sublevel.plot;
 
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.server.Bootstrap;
 import net.minecraft.world.level.ChunkPos;
 
 import java.util.Set;
@@ -12,6 +13,7 @@ public final class SubLevelReconstructionPayloadPreflightSelfTest {
     }
 
     public static void main(final String[] args) {
+        Bootstrap.bootStrap();
         allAirChunkPayloadIsAccepted();
         rootLightStateIsRejected();
         malformedSectionAndLightAreRejected();
