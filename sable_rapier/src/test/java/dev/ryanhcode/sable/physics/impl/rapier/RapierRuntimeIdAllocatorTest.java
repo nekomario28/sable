@@ -23,7 +23,7 @@ final class RapierRuntimeIdAllocatorTest {
         assertEquals(0, allocator.next());
 
         final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
-        assertEquals(1, reservation.runtimeId());
+        assertEquals(1, reservation.id());
         assertTrue(reservation.open());
 
         reservation.rollback();
@@ -37,8 +37,8 @@ final class RapierRuntimeIdAllocatorTest {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         final RapierRuntimeIdAllocator.Reservation first = allocator.reserve();
         final RapierRuntimeIdAllocator.Reservation second = allocator.reserve();
-        assertEquals(0, first.runtimeId());
-        assertEquals(1, second.runtimeId());
+        assertEquals(0, first.id());
+        assertEquals(1, second.id());
 
         second.rollback();
         first.rollback();
@@ -50,7 +50,7 @@ final class RapierRuntimeIdAllocatorTest {
     void committedReservationIsNotReused() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
-        assertEquals(0, reservation.runtimeId());
+        assertEquals(0, reservation.id());
 
         reservation.commit();
 
@@ -62,7 +62,7 @@ final class RapierRuntimeIdAllocatorTest {
     void unrelatedLaterAllocationMakesRollbackFailClosed() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
-        assertEquals(0, reservation.runtimeId());
+        assertEquals(0, reservation.id());
         assertEquals(1, allocator.next());
 
         assertThrows(IllegalStateException.class, reservation::rollback);
