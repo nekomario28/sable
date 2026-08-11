@@ -20,8 +20,8 @@ import java.util.Set;
  *
  * <p>An empty SubLevel slot is insufficient evidence that its chunk coordinates are safe to reuse.
  * A failed or still-unloading previous load can leave ChunkMap state at the exact target positions.
- * Reconstruction therefore refuses to overwrite any target position that is updating, visible,
- * pending drop, or queued for unload.</p>
+ * Reconstruction therefore refuses to overwrite any target position that is updating, visible, or
+ * explicitly present in ChunkMap's keyed pending-drop set.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionPublicationPreflight {
@@ -120,7 +120,7 @@ public final class SubLevelReconstructionPublicationPreflight {
                 failures.add(Failure.TARGET_CHUNK_VISIBLE);
                 blockedHere = true;
             }
-            if (chunkMap.toDrop.contains(globalKey) || chunkMap.unloadQueue.containsKey(globalKey)) {
+            if (chunkMap.toDrop.contains(globalKey)) {
                 failures.add(Failure.TARGET_CHUNK_PENDING_UNLOAD);
                 blockedHere = true;
             }
