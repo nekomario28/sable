@@ -15,6 +15,7 @@ public final class SubLevelReconstructionContainerBaselineSelfTest {
         identityOrderRejectsReordering();
         identityMapRejectsEqualReplacement();
         identityMapRejectsKeyDrift();
+        identityMapAcceptsDifferentIterationOrder();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_CONTAINER_BASELINE_SELF_TEST: PASS");
     }
 
@@ -65,5 +66,20 @@ public final class SubLevelReconstructionContainerBaselineSelfTest {
         extra.put(UUID.randomUUID(), new Object());
 
         assert !SubLevelReconstructionContainerBaseline.sameIdentityMap(expected, extra);
+    }
+
+    private static void identityMapAcceptsDifferentIterationOrder() {
+        final UUID firstUuid = UUID.randomUUID();
+        final UUID secondUuid = UUID.randomUUID();
+        final Object first = new Object();
+        final Object second = new Object();
+        final Map<UUID, Object> expected = new LinkedHashMap<>();
+        expected.put(firstUuid, first);
+        expected.put(secondUuid, second);
+        final Map<UUID, Object> reversed = new LinkedHashMap<>();
+        reversed.put(secondUuid, second);
+        reversed.put(firstUuid, first);
+
+        assert SubLevelReconstructionContainerBaseline.sameIdentityMap(expected, reversed);
     }
 }
