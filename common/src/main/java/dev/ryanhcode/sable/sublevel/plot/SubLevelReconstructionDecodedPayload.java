@@ -305,11 +305,13 @@ public final class SubLevelReconstructionDecodedPayload {
         final List<DecodedChunk> decodedChunks = new ArrayList<>(stagedPayload.chunks().size());
 
         for (final SubLevelReconstructionStagedPayload.ChunkSnapshot snapshot : stagedPayload.chunks()) {
-            final DecodedChunk decoded = decodeChunk(snapshot, sectionCount, failures);
-            if (decoded == null) {
+            final EnumSet<Failure> chunkFailures = EnumSet.noneOf(Failure.class);
+            final DecodedChunk decoded = decodeChunk(snapshot, sectionCount, chunkFailures);
+            if (!chunkFailures.isEmpty()) {
+                failures.addAll(chunkFailures);
                 failedChunkKeys.add(snapshot.targetGlobalChunkKey());
             } else {
-                decodedChunks.add(decoded);
+                decodedChunks.add(Objects.requireNonNull(decoded, "successful decode must produce a chunk"));
             }
         }
 
@@ -342,7 +344,6 @@ public final class SubLevelReconstructionDecodedPayload {
             final EnumSet<Failure> failures
     ) {
         final CompoundTag chunkTag = snapshot.chunkTag();
-        final int failureCountBefore = failures.size();
         final List<DecodedSection> sections = decodeSections(chunkTag, sectionCount, failures);
         final List<DecodedBlockTick> blockTicks = decodeBlockTicks(chunkTag, failures);
         final List<DecodedFluidTick> fluidTicks = decodeFluidTicks(chunkTag, failures);
@@ -350,7 +351,7 @@ public final class SubLevelReconstructionDecodedPayload {
         final List<DecodedBlockEntity> blockEntities = decodeBlockEntities(chunkTag, failures);
         final boolean lightCorrect = chunkTag.getBoolean("isLightOn");
 
-        if (failures.size() != failureCountBefore) {
+        if (!failures.isEmpty()) {
             return null;
         }
 
