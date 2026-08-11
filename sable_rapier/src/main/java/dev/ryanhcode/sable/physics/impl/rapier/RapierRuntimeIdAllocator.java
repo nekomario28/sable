@@ -6,30 +6,38 @@ import java.util.Objects;
 import java.util.function.Supplier;
 
 /**
- * Monotonic runtime-ID allocator with an explicit transaction-only reservation primitive.
+ * Monotonic runtime-ID allocator with an exclusive transaction reservation.
  *
- * <p>Normal allocation remains exactly equivalent to the historical {@code counter++} behavior.
- * A reservation may be rolled back only while it is still the most recent allocation. If any
- * unrelated runtime ID was allocated afterwards, rollback fails closed instead of risking an ID
- * collision or rewinding observable allocator state past another owner.</p>
+ * <p>Normal allocation remains exactly equivalent to the historical {@code counter++} behavior
+ * when no reconstruction reservation is open. While a reservation is open, unrelated allocations
+ * and additional reservations are rejected so rollback remains exact for the entire transaction.
+ * The reserved ID may be consumed only by its explicit adoption scope.</p>
  */
 @ApiStatus.Internal
 final class RapierRuntimeIdAllocator {
     private int nextId;
+    private Reservation openReservation;
     private ClaimScope activeClaimScope;
 
     synchronized int next() {
         if (this.activeClaimScope != null) {
             return this.activeClaimScope.claim();
         }
+        if (this.openReservation != null) {
+            throw new IllegalStateException(
+                    "Cannot allocate another runtime ID while a reconstruction reservation is open"
+            );
+        }
         return this.nextId++;
     }
 
     synchronized Reservation reserve() {
-        if (this.activeClaimScope != null) {
-            throw new IllegalStateException("Cannot reserve another runtime ID inside an adoption scope");
+        if (this.openReservation != null || this.activeClaimScope != null) {
+            throw new IllegalStateException("A reconstruction runtime ID reservation is already active");
         }
-        return new Reservation(this, this.nextId++);
+        final Reservation reservation = new Reservation(this, this.nextId++);
+        this.openReservation = reservation;
+        return reservation;
     }
 
     synchronized <T> T withReservation(final Reservation reservation, final Supplier<T> allocation) {
@@ -38,8 +46,8 @@ final class RapierRuntimeIdAllocator {
         if (reservation.allocator != this) {
             throw new IllegalArgumentException("Runtime ID reservation belongs to another allocator");
         }
-        if (!reservation.open()) {
-            throw new IllegalStateException("Runtime ID reservation is already closed");
+        if (this.openReservation != reservation || !reservation.open()) {
+            throw new IllegalStateException("Runtime ID reservation is not the active open reservation");
         }
         if (this.activeClaimScope != null) {
             throw new IllegalStateException("Nested runtime ID adoption scopes are not allowed");
@@ -52,7 +60,7 @@ final class RapierRuntimeIdAllocator {
             if (!scope.claimed()) {
                 throw new IllegalStateException("Reserved runtime ID adoption consumed no runtime ID");
             }
-            if (!reservation.open()) {
+            if (this.openReservation != reservation || !reservation.open()) {
                 throw new IllegalStateException("Runtime ID reservation was closed inside its adoption scope");
             }
             return result;
@@ -61,20 +69,35 @@ final class RapierRuntimeIdAllocator {
         }
     }
 
-    private synchronized void assertCanClose(final int id) {
-        if (this.activeClaimScope != null && this.activeClaimScope.runtimeId == id) {
-            throw new IllegalStateException("Cannot close a runtime ID while its adoption scope is active");
-        }
+    private synchronized void commit(final Reservation reservation) {
+        this.requireClosable(reservation);
+        reservation.state = Reservation.State.COMMITTED;
+        this.openReservation = null;
     }
 
-    private synchronized void rollback(final int id) {
-        this.assertCanClose(id);
-        if (this.nextId != id + 1) {
+    private synchronized void rollback(final Reservation reservation) {
+        this.requireClosable(reservation);
+        if (this.nextId != reservation.id + 1) {
             throw new IllegalStateException(
-                    "Cannot roll back runtime ID %d after a later ID was allocated".formatted(id)
+                    "Exclusive runtime ID reservation lost exact allocator ownership for %d"
+                            .formatted(reservation.id)
             );
         }
-        this.nextId = id;
+        this.nextId = reservation.id;
+        reservation.state = Reservation.State.ROLLED_BACK;
+        this.openReservation = null;
+    }
+
+    private void requireClosable(final Reservation reservation) {
+        if (reservation.allocator != this) {
+            throw new IllegalArgumentException("Runtime ID reservation belongs to another allocator");
+        }
+        if (this.openReservation != reservation || !reservation.open()) {
+            throw new IllegalStateException("Runtime ID reservation is not the active open reservation");
+        }
+        if (this.activeClaimScope != null && this.activeClaimScope.runtimeId == reservation.id) {
+            throw new IllegalStateException("Cannot close a runtime ID while its adoption scope is active");
+        }
     }
 
     private static final class ClaimScope {
@@ -123,20 +146,12 @@ final class RapierRuntimeIdAllocator {
             return this.state == State.OPEN;
         }
 
-        synchronized void commit() {
-            if (this.state != State.OPEN) {
-                throw new IllegalStateException("Runtime ID reservation is already closed: " + this.state);
-            }
-            this.allocator.assertCanClose(this.id);
-            this.state = State.COMMITTED;
+        void commit() {
+            this.allocator.commit(this);
         }
 
-        synchronized void rollback() {
-            if (this.state != State.OPEN) {
-                throw new IllegalStateException("Runtime ID reservation is already closed: " + this.state);
-            }
-            this.allocator.rollback(this.id);
-            this.state = State.ROLLED_BACK;
+        void rollback() {
+            this.allocator.rollback(this);
         }
     }
 }

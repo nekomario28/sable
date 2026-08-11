@@ -47,6 +47,28 @@ public final class ReconstructionRuntimeIdTest {
                 helper.fail("Detached ServerSubLevel did not adopt the reserved runtime ID");
                 return;
             }
+
+            boolean unrelatedAllocationRejected = false;
+            try {
+                physicsSystem.getNextRuntimeID();
+            } catch (final IllegalStateException expected) {
+                unrelatedAllocationRejected = true;
+            }
+            if (!unrelatedAllocationRejected) {
+                helper.fail("Open reconstruction reservation allowed an unrelated runtime ID allocation");
+                return;
+            }
+
+            boolean secondReservationRejected = false;
+            try {
+                support.reserveReconstructionRuntimeId();
+            } catch (final IllegalStateException expected) {
+                secondReservationRejected = true;
+            }
+            if (!secondReservationRejected) {
+                helper.fail("Open reconstruction reservation allowed a second reservation");
+                return;
+            }
         } finally {
             if (reservation.open()) {
                 reservation.rollback();
