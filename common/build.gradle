@@ -123,6 +123,13 @@ tasks.register('physicsSectionTicketReservationSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('physicsSectionMaterializationSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.system.ticket.PhysicsSectionMaterializationSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
@@ -130,5 +137,6 @@ tasks.named('check') {
             subLevelReconstructionTransactionSelfTest,
             subLevelReconstructionContainerBaselineSelfTest,
             subLevelReconstructionAttemptSelfTest,
-            physicsSectionTicketReservationSelfTest
+            physicsSectionTicketReservationSelfTest,
+            physicsSectionMaterializationSelfTest
 }
