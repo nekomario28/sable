@@ -27,6 +27,7 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import net.minecraft.world.level.chunk.status.ChunkStatus;
 import net.minecraft.world.phys.Vec3;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Vector3d;
 
@@ -355,6 +356,79 @@ public class PhysicsChunkTicketManager {
     public void addTicketForSection(final ServerLevel level, final SectionPos sectionPos) {
         final PhysicsChunkTicket ticket = new PhysicsChunkTicket(sectionPos, level.getGameTime(), null);
         this.physicsChunks.put(sectionPos, ticket);
+    }
+
+    /**
+     * Reserves exactly one physics section-ticket map entry for a reconstruction transaction.
+     *
+     * <p>If the section was already tracked, the reservation borrows that exact ticket and rollback
+     * will only verify it is still present. If it was absent, the reservation owns the newly inserted
+     * ticket and rollback removes only that exact ticket by identity. This method does not upload or
+     * remove any physics-pipeline section data.</p>
+     */
+    @ApiStatus.Internal
+    public PhysicsSectionTicketReservation reserveTicketForSection(
+            final ServerLevel level,
+            final SectionPos sectionPos
+    ) {
+        if (!level.getServer().isSameThread()) {
+            throw new IllegalStateException("Physics section ticket reservation must run on the owning server thread");
+        }
+        return this.reserveTicketForSection(sectionPos, level.getGameTime());
+    }
+
+    /** Package-private pure seam for ownership tests. */
+    PhysicsSectionTicketReservation reserveTicketForSection(final SectionPos sectionPos, final long gameTime) {
+        final PhysicsChunkTicket existing = this.physicsChunks.get(sectionPos);
+        if (existing != null) {
+            return new PhysicsSectionTicketReservation(
+                    this,
+                    sectionPos,
+                    existing,
+                    PhysicsSectionTicketReservation.Ownership.BORROWED
+            );
+        }
+
+        final PhysicsChunkTicket ticket = new PhysicsChunkTicket(sectionPos, gameTime, null);
+        final PhysicsChunkTicket raced = this.physicsChunks.putIfAbsent(sectionPos, ticket);
+        if (raced != null) {
+            return new PhysicsSectionTicketReservation(
+                    this,
+                    sectionPos,
+                    raced,
+                    PhysicsSectionTicketReservation.Ownership.BORROWED
+            );
+        }
+        return new PhysicsSectionTicketReservation(
+                this,
+                sectionPos,
+                ticket,
+                PhysicsSectionTicketReservation.Ownership.OWNED
+        );
+    }
+
+    void verifyReservation(final PhysicsSectionTicketReservation reservation) {
+        this.requireReservationOwner(reservation);
+        if (this.physicsChunks.get(reservation.sectionPos()) != reservation.ticket()) {
+            throw new IllegalStateException(
+                    "Physics section ticket reservation lost exact ownership at " + reservation.sectionPos()
+            );
+        }
+    }
+
+    void rollbackReservation(final PhysicsSectionTicketReservation reservation) {
+        this.verifyReservation(reservation);
+        if (reservation.owned() && !this.physicsChunks.remove(reservation.sectionPos(), reservation.ticket())) {
+            throw new IllegalStateException(
+                    "Failed to remove transaction-owned physics section ticket at " + reservation.sectionPos()
+            );
+        }
+    }
+
+    private void requireReservationOwner(final PhysicsSectionTicketReservation reservation) {
+        if (reservation.manager() != this) {
+            throw new IllegalArgumentException("Physics section ticket reservation belongs to another manager");
+        }
     }
 
     /**
