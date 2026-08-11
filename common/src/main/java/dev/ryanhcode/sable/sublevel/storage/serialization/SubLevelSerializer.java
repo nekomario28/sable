@@ -53,7 +53,8 @@ public class SubLevelSerializer {
         serializedPose.rotationPoint().set(selfCenterOfMass);
 
         tag.putUUID("uuid", subLevel.getUniqueId());
-        tag.put("plot", plot.save());
+        final CompoundTag plotTag = SubLevelSerializationChunkMetadata.normalize(plot, plot.save());
+        tag.put("plot", plotTag);
         tag.put("pose", SableNBTUtils.writePose3d(serializedPose));
         tag.put("world_bounds", SableNBTUtils.writeBoundingBox(subLevel.boundingBox()));
 
