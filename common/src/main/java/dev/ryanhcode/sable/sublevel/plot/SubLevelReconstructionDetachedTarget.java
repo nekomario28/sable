@@ -126,7 +126,7 @@ public final class SubLevelReconstructionDetachedTarget {
         }
 
         final ServerLevel targetLevel = attempt.targetLevel();
-        if (attempt.baseline().verify(targetLevel) != SubLevelReconstructionContainerBaseline.Verification.EXACT) {
+        if (!attempt.baseline().verify(targetLevel).exact()) {
             return new Rejected(Failure.BASELINE_DRIFT);
         }
 
@@ -164,8 +164,8 @@ public final class SubLevelReconstructionDetachedTarget {
         final SubLevelReconstructionTransaction transaction = attempt.transaction();
         transaction.beginMaterialization();
 
-        SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation reservation = null;
         try {
+            final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation reservation;
             try {
                 reservation = runtimeIdSupport.reserveReconstructionRuntimeId();
             } catch (final RuntimeException reservationFailure) {
@@ -176,23 +176,22 @@ public final class SubLevelReconstructionDetachedTarget {
                 );
             }
 
-            final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation ownedReservation = reservation;
             transaction.registerRollback("runtime-id-reservation", () -> {
-                if (ownedReservation.open()) {
-                    ownedReservation.rollback();
+                if (reservation.open()) {
+                    reservation.rollback();
                 }
             });
             transaction.registerCommitSeal("runtime-id-reservation", () -> {
-                if (!ownedReservation.open()) {
+                if (!reservation.open()) {
                     throw new IllegalStateException("Runtime ID reservation closed before final commit seal");
                 }
-                ownedReservation.commit();
+                reservation.commit();
             });
 
             final ServerSubLevel detached;
             try {
                 detached = runtimeIdSupport.withReservedRuntimeId(
-                        ownedReservation,
+                        reservation,
                         () -> new ServerSubLevel(
                                 targetLevel,
                                 globalPlotX,
@@ -208,7 +207,7 @@ public final class SubLevelReconstructionDetachedTarget {
                 );
             }
 
-            if (detached.getRuntimeId() != ownedReservation.runtimeId()) {
+            if (detached.getRuntimeId() != reservation.runtimeId()) {
                 throw new AcquisitionFailure(
                         Failure.RUNTIME_ID_MISMATCH,
                         "Detached target did not adopt the reserved runtime ID"
@@ -220,7 +219,7 @@ public final class SubLevelReconstructionDetachedTarget {
                 throw new AcquisitionFailure(Failure.UUID_MISMATCH, "Detached target UUID restoration failed");
             }
 
-            if (attempt.baseline().verify(targetLevel) != SubLevelReconstructionContainerBaseline.Verification.EXACT) {
+            if (!attempt.baseline().verify(targetLevel).exact()) {
                 throw new AcquisitionFailure(
                         Failure.CONSTRUCTION_PUBLISHED_STATE,
                         "Detached target construction changed authoritative container state"
@@ -230,7 +229,7 @@ public final class SubLevelReconstructionDetachedTarget {
             return new Acquired(new SubLevelReconstructionDetachedTarget(
                     attempt,
                     detached,
-                    ownedReservation
+                    reservation
             ));
         } catch (final AcquisitionFailure failure) {
             return new RolledBack(failure.failure, failure, transaction.rollback(failure));
