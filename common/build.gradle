@@ -102,9 +102,17 @@ tasks.register('subLevelReconstructionTransactionSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionContainerBaselineSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionContainerBaselineSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
             subLevelReconstructionPlanSelfTest,
-            subLevelReconstructionTransactionSelfTest
+            subLevelReconstructionTransactionSelfTest,
+            subLevelReconstructionContainerBaselineSelfTest
 }
