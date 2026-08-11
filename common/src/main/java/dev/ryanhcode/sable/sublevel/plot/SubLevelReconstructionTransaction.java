@@ -35,6 +35,11 @@ public final class SubLevelReconstructionTransaction {
         void run() throws Exception;
     }
 
+    @FunctionalInterface
+    public interface CommitVerificationAction {
+        void run() throws Exception;
+    }
+
     public record CleanupFailure(String label, Exception cause) {
         public CleanupFailure {
             Objects.requireNonNull(label, "label");
@@ -42,6 +47,38 @@ public final class SubLevelReconstructionTransaction {
             if (label.isBlank()) {
                 throw new IllegalArgumentException("Rollback action label cannot be blank");
             }
+        }
+    }
+
+    public record CommitVerificationFailure(String label, Exception cause) {
+        public CommitVerificationFailure {
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(cause, "cause");
+            if (label.isBlank()) {
+                throw new IllegalArgumentException("Commit verification label cannot be blank");
+            }
+        }
+    }
+
+    /**
+     * Raised only before commit. The transaction remains MATERIALIZING and fully rollbackable.
+     */
+    public static final class CommitVerificationException extends RuntimeException {
+        private final List<CommitVerificationFailure> failures;
+
+        private CommitVerificationException(final List<CommitVerificationFailure> failures) {
+            super(
+                    "Reconstruction commit verification failed for " + failures.size() + " resource(s)",
+                    failures.getFirst().cause()
+            );
+            this.failures = List.copyOf(failures);
+            for (int index = 1; index < failures.size(); index++) {
+                this.addSuppressed(failures.get(index).cause());
+            }
+        }
+
+        public List<CommitVerificationFailure> failures() {
+            return this.failures;
         }
     }
 
@@ -79,8 +116,19 @@ public final class SubLevelReconstructionTransaction {
         }
     }
 
+    private record RegisteredCommitVerification(String label, CommitVerificationAction action) {
+        private RegisteredCommitVerification {
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(action, "action");
+            if (label.isBlank()) {
+                throw new IllegalArgumentException("Commit verification label cannot be blank");
+            }
+        }
+    }
+
     private final SubLevelReconstructionPlan plan;
     private final Deque<RegisteredRollback> rollbackActions = new ArrayDeque<>();
+    private final List<RegisteredCommitVerification> commitVerifications = new ArrayList<>();
     private State state = State.PREPARED;
 
     SubLevelReconstructionTransaction(final SubLevelReconstructionPlan plan) {
@@ -96,7 +144,7 @@ public final class SubLevelReconstructionTransaction {
     }
 
     /**
-     * Enters the only state in which reconstruction mutations and rollback registration are allowed.
+     * Enters the only state in which reconstruction mutations and resource checks may be registered.
      */
     void beginMaterialization() {
         this.requireState(State.PREPARED, "begin materialization");
@@ -114,11 +162,38 @@ public final class SubLevelReconstructionTransaction {
     }
 
     /**
-     * Seals a successfully verified transaction. Rollback actions are discarded only at commit.
+     * Registers a read-only verification that must pass immediately before commit.
+     *
+     * <p>Every verification runs even when an earlier verification fails, so the caller receives
+     * complete failure evidence. A failed verification leaves the transaction MATERIALIZING with
+     * all rollback actions intact.</p>
+     */
+    void registerCommitVerification(final String label, final CommitVerificationAction action) {
+        this.requireState(State.MATERIALIZING, "register commit verification");
+        this.commitVerifications.add(new RegisteredCommitVerification(label, action));
+    }
+
+    /**
+     * Runs all read-only resource verification and commits only when all checks pass.
      */
     void commit() {
         this.requireState(State.MATERIALIZING, "commit");
+
+        final List<CommitVerificationFailure> failures = new ArrayList<>();
+        for (final RegisteredCommitVerification verification : this.commitVerifications) {
+            try {
+                verification.action().run();
+            } catch (final Exception exception) {
+                failures.add(new CommitVerificationFailure(verification.label(), exception));
+            }
+        }
+
+        if (!failures.isEmpty()) {
+            throw new CommitVerificationException(failures);
+        }
+
         this.rollbackActions.clear();
+        this.commitVerifications.clear();
         this.state = State.COMMITTED;
     }
 
@@ -138,6 +213,7 @@ public final class SubLevelReconstructionTransaction {
                 failures.add(new CleanupFailure(rollback.label(), exception));
             }
         }
+        this.commitVerifications.clear();
 
         this.state = failures.isEmpty() ? State.ROLLED_BACK : State.ROLLBACK_FAILED;
         return new RollbackReport(this.state, trigger, failures);
@@ -146,6 +222,11 @@ public final class SubLevelReconstructionTransaction {
     @ApiStatus.Internal
     int pendingRollbackCount() {
         return this.rollbackActions.size();
+    }
+
+    @ApiStatus.Internal
+    int pendingCommitVerificationCount() {
+        return this.commitVerifications.size();
     }
 
     private void requireState(final State expected, final String operation) {
