@@ -17,9 +17,24 @@ import java.util.Objects;
  * uploaded or removed by this resource. If the ticket is newly owned, the section is uploaded and
  * rollback removes the pipeline section before removing the owned ticket. Cleanup continues after
  * individual failures and reports all failures.</p>
+ *
+ * <p>If pipeline addition throws, its mutation outcome is unknown because the current
+ * {@link PhysicsPipeline} API does not provide transactional addition or a read-only section query.
+ * In that case this class rolls back its ticket ownership but deliberately does not guess by
+ * removing pipeline state. The acquisition fails closed with explicit unknown-state evidence.</p>
  */
 @ApiStatus.Internal
 public final class PhysicsSectionMaterialization {
+    @FunctionalInterface
+    interface SectionAddition {
+        void run() throws Throwable;
+    }
+
+    @FunctionalInterface
+    interface SectionRemoval {
+        void run() throws Throwable;
+    }
+
     public enum State {
         ACTIVE,
         COMMITTED,
@@ -51,9 +66,7 @@ public final class PhysicsSectionMaterialization {
         }
     }
 
-    /**
-     * Exception adapter for rollback stacks whose action contract reports failure by throwing.
-     */
+    /** Exception adapter for rollback stacks whose action contract reports failure by throwing. */
     public static final class RollbackException extends Exception {
         private final RollbackReport report;
 
@@ -104,27 +117,22 @@ public final class PhysicsSectionMaterialization {
         }
     }
 
-    private final PhysicsPipeline pipeline;
-    private final SectionPos sectionPos;
+    private final SectionRemoval removal;
     private final PhysicsSectionTicketReservation ticketReservation;
     private final boolean uploadedByTransaction;
     private State state = State.ACTIVE;
 
     private PhysicsSectionMaterialization(
-            final PhysicsPipeline pipeline,
-            final SectionPos sectionPos,
+            final SectionRemoval removal,
             final PhysicsSectionTicketReservation ticketReservation,
             final boolean uploadedByTransaction
     ) {
-        this.pipeline = Objects.requireNonNull(pipeline, "pipeline");
-        this.sectionPos = Objects.requireNonNull(sectionPos, "sectionPos");
+        this.removal = Objects.requireNonNull(removal, "removal");
         this.ticketReservation = Objects.requireNonNull(ticketReservation, "ticketReservation");
         this.uploadedByTransaction = uploadedByTransaction;
     }
 
-    /**
-     * Acquires a section resource on the owning server thread.
-     */
+    /** Acquires a section resource on the owning server thread. */
     public static Acquisition acquire(
             final ServerLevel level,
             final PhysicsChunkTicketManager ticketManager,
@@ -134,68 +142,67 @@ public final class PhysicsSectionMaterialization {
             final boolean uploadDataIfGlobal
     ) {
         Objects.requireNonNull(level, "level");
+        Objects.requireNonNull(ticketManager, "ticketManager");
+        Objects.requireNonNull(pipeline, "pipeline");
+        Objects.requireNonNull(section, "section");
+        Objects.requireNonNull(sectionPos, "sectionPos");
         if (!level.getServer().isSameThread()) {
             return new Failed(
                     new IllegalStateException("Physics section materialization must run on the owning server thread"),
                     List.of()
             );
         }
+
         return acquire(
                 ticketManager,
-                pipeline,
-                section,
                 sectionPos,
                 level.getGameTime(),
-                uploadDataIfGlobal
+                () -> pipeline.handleChunkSectionAddition(
+                        section,
+                        sectionPos.x(),
+                        sectionPos.y(),
+                        sectionPos.z(),
+                        uploadDataIfGlobal
+                ),
+                () -> pipeline.handleChunkSectionRemoval(
+                        sectionPos.x(),
+                        sectionPos.y(),
+                        sectionPos.z()
+                )
         );
     }
 
-    /** Package-private pure seam for executable ownership/failure tests. */
+    /** Package-private pure seam for ownership/failure tests without Minecraft registry setup. */
     static Acquisition acquire(
             final PhysicsChunkTicketManager ticketManager,
-            final PhysicsPipeline pipeline,
-            final LevelChunkSection section,
             final SectionPos sectionPos,
             final long gameTime,
-            final boolean uploadDataIfGlobal
+            final SectionAddition addition,
+            final SectionRemoval removal
     ) {
         Objects.requireNonNull(ticketManager, "ticketManager");
-        Objects.requireNonNull(pipeline, "pipeline");
-        Objects.requireNonNull(section, "section");
         Objects.requireNonNull(sectionPos, "sectionPos");
+        Objects.requireNonNull(addition, "addition");
+        Objects.requireNonNull(removal, "removal");
 
         final PhysicsSectionTicketReservation ticket =
                 ticketManager.reserveTicketForSection(sectionPos, gameTime);
         if (!ticket.owned()) {
-            return new Acquired(new PhysicsSectionMaterialization(
-                    pipeline,
-                    sectionPos,
-                    ticket,
-                    false
-            ));
+            return new Acquired(new PhysicsSectionMaterialization(removal, ticket, false));
         }
 
         try {
-            pipeline.handleChunkSectionAddition(
-                    section,
-                    sectionPos.x(),
-                    sectionPos.y(),
-                    sectionPos.z(),
-                    uploadDataIfGlobal
-            );
-            return new Acquired(new PhysicsSectionMaterialization(
-                    pipeline,
-                    sectionPos,
-                    ticket,
-                    true
-            ));
+            addition.run();
+            return new Acquired(new PhysicsSectionMaterialization(removal, ticket, true));
         } catch (final Throwable additionFailure) {
             final List<CleanupFailure> cleanupFailures = new ArrayList<>();
-            try {
-                pipeline.handleChunkSectionRemoval(sectionPos.x(), sectionPos.y(), sectionPos.z());
-            } catch (final Throwable cleanupFailure) {
-                cleanupFailures.add(new CleanupFailure("physics_section", cleanupFailure));
-            }
+            cleanupFailures.add(new CleanupFailure(
+                    "physics_section_state_unknown",
+                    new IllegalStateException(
+                            "Physics section addition threw; the current pipeline API cannot prove whether mutation occurred",
+                            additionFailure
+                    )
+            ));
             try {
                 ticket.rollback();
             } catch (final Throwable cleanupFailure) {
@@ -218,47 +225,37 @@ public final class PhysicsSectionMaterialization {
     }
 
     /**
-     * Verifies exact resource ownership without making this materialization terminal.
+     * Verifies exact ticket ownership without making this materialization terminal.
      *
-     * <p>A surrounding transaction can verify every resource first and still roll back if a later
-     * verification fails.</p>
+     * <p>The current pipeline API cannot independently query section presence, so this does not yet
+     * constitute complete physics-section commit verification.</p>
      */
     public void verifyCommit() {
         this.requireActive("verify commit");
         this.ticketReservation.verifyCommit();
     }
 
-    /**
-     * Makes a previously verified materialization terminal without external pipeline/map mutation.
-     */
+    /** Makes a previously verified materialization terminal without external mutation. */
     public void sealCommit() {
         this.requireActive("seal commit");
         this.ticketReservation.sealCommit();
         this.state = State.COMMITTED;
     }
 
-    /**
-     * Convenience single-resource commit: verify exact ownership, then seal.
-     */
+    /** Convenience single-resource commit: verify exact ownership, then seal. */
     public void commit() {
         this.verifyCommit();
         this.sealCommit();
     }
 
-    /**
-     * Restores pre-materialization section/ticket state, continuing cleanup after failures.
-     */
+    /** Restores known transaction-owned section/ticket state, continuing cleanup after failures. */
     public RollbackReport rollback() {
         this.requireActive("rollback");
         final List<CleanupFailure> failures = new ArrayList<>();
 
         if (this.uploadedByTransaction) {
             try {
-                this.pipeline.handleChunkSectionRemoval(
-                        this.sectionPos.x(),
-                        this.sectionPos.y(),
-                        this.sectionPos.z()
-                );
+                this.removal.run();
             } catch (final Throwable cleanupFailure) {
                 failures.add(new CleanupFailure("physics_section", cleanupFailure));
             }
@@ -274,9 +271,7 @@ public final class PhysicsSectionMaterialization {
         return new RollbackReport(this.state, failures);
     }
 
-    /**
-     * Rollback-stack adapter that throws when exact resource cleanup could not be proven.
-     */
+    /** Rollback-stack adapter that throws when exact resource cleanup could not be proven. */
     public void rollbackOrThrow() throws RollbackException {
         final RollbackReport report = this.rollback();
         if (!report.successful()) {
