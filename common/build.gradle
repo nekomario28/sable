@@ -158,6 +158,13 @@ tasks.register('subLevelReconstructionStagedPayloadSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionDecodedPayloadSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionDecodedPayloadSelfTest'
+    enableAssertions = true
+}
+
 tasks.register('physicsSectionTicketReservationSelfTest', JavaExec) {
     dependsOn testClasses
     classpath = sourceSets.test.runtimeClasspath
@@ -192,6 +199,7 @@ tasks.named('check') {
             subLevelReconstructionEntityPreflightSelfTest,
             subLevelReconstructionPlatformPreflightSelfTest,
             subLevelReconstructionStagedPayloadSelfTest,
+            subLevelReconstructionDecodedPayloadSelfTest,
             physicsSectionTicketReservationSelfTest,
             physicsSectionMaterializationSelfTest,
             subLevelSerializationChunkMetadataSelfTest
