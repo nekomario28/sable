@@ -9,7 +9,6 @@ import org.jetbrains.annotations.ApiStatus;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import java.util.Optional;
 
 /**
  * Transaction-owned physics section resource built on top of exact ticket ownership.
@@ -49,6 +48,28 @@ public final class PhysicsSectionMaterialization {
 
         public boolean successful() {
             return this.state == State.ROLLED_BACK;
+        }
+    }
+
+    /**
+     * Exception adapter for rollback stacks whose action contract reports failure by throwing.
+     */
+    public static final class RollbackException extends Exception {
+        private final RollbackReport report;
+
+        private RollbackException(final RollbackReport report) {
+            super(
+                    "Physics section rollback failed for " + report.failures().size() + " resource(s)",
+                    report.failures().getFirst().cause()
+            );
+            this.report = report;
+            for (int index = 1; index < report.failures().size(); index++) {
+                this.addSuppressed(report.failures().get(index).cause());
+            }
+        }
+
+        public RollbackReport report() {
+            return this.report;
         }
     }
 
@@ -232,6 +253,16 @@ public final class PhysicsSectionMaterialization {
 
         this.state = failures.isEmpty() ? State.ROLLED_BACK : State.ROLLBACK_FAILED;
         return new RollbackReport(this.state, failures);
+    }
+
+    /**
+     * Rollback-stack adapter that throws when exact resource cleanup could not be proven.
+     */
+    public void rollbackOrThrow() throws RollbackException {
+        final RollbackReport report = this.rollback();
+        if (!report.successful()) {
+            throw new RollbackException(report);
+        }
     }
 
     @ApiStatus.Internal
