@@ -33,6 +33,87 @@ final class RapierRuntimeIdAllocatorTest {
     }
 
     @Test
+    void reservedIdCanBeAdoptedByExactlyOneNormalAllocation() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
+
+        final int adopted = allocator.withReservation(reservation, allocator::next);
+
+        assertEquals(reservation.id(), adopted);
+        assertTrue(reservation.open());
+        reservation.rollback();
+        assertEquals(adopted, allocator.next());
+    }
+
+    @Test
+    void allocationFailureAfterClaimLeavesReservationRollbackable() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
+
+        assertThrows(IllegalStateException.class, () -> allocator.withReservation(reservation, () -> {
+            assertEquals(reservation.id(), allocator.next());
+            throw new IllegalStateException("construction failed");
+        }));
+
+        assertTrue(reservation.open());
+        reservation.rollback();
+        assertEquals(0, allocator.next());
+    }
+
+    @Test
+    void zeroAndMultipleConsumptionFailClosed() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+
+        final RapierRuntimeIdAllocator.Reservation zero = allocator.reserve();
+        assertThrows(IllegalStateException.class, () -> allocator.withReservation(zero, () -> "no id"));
+        assertTrue(zero.open());
+        zero.rollback();
+
+        final RapierRuntimeIdAllocator.Reservation multiple = allocator.reserve();
+        assertThrows(IllegalStateException.class, () -> allocator.withReservation(multiple, () -> {
+            allocator.next();
+            allocator.next();
+            return null;
+        }));
+        assertTrue(multiple.open());
+        multiple.rollback();
+    }
+
+    @Test
+    void foreignAndNestedScopesFailClosed() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator other = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator.Reservation foreign = other.reserve();
+
+        assertThrows(IllegalArgumentException.class, () -> allocator.withReservation(foreign, allocator::next));
+        foreign.rollback();
+
+        final RapierRuntimeIdAllocator.Reservation outer = allocator.reserve();
+        assertThrows(IllegalStateException.class, () -> allocator.withReservation(outer, () -> {
+            allocator.next();
+            final RapierRuntimeIdAllocator.Reservation impossible = allocator.reserve();
+            return allocator.withReservation(impossible, allocator::next);
+        }));
+        assertTrue(outer.open());
+        outer.rollback();
+    }
+
+    @Test
+    void reservationCannotCloseInsideAdoptionScope() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
+
+        assertThrows(IllegalStateException.class, () -> allocator.withReservation(reservation, () -> {
+            allocator.next();
+            reservation.commit();
+            return null;
+        }));
+
+        assertTrue(reservation.open());
+        reservation.rollback();
+    }
+
+    @Test
     void nestedReservationsRollbackInStrictReverseOrder() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         final RapierRuntimeIdAllocator.Reservation first = allocator.reserve();

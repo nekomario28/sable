@@ -4,6 +4,9 @@ import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.ApiStatus;
 
+import java.util.Objects;
+import java.util.function.Supplier;
+
 /**
  * Rapier pipeline entry point that keeps normal runtime-ID allocation and reconstruction
  * reservations in one global allocator.
@@ -29,15 +32,29 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     @Override
     public RuntimeIdReservation reserveReconstructionRuntimeId() {
-        return new RuntimeIdReservationAdapter(RUNTIME_IDS.reserve());
+        return new RuntimeIdReservationAdapter(this, RUNTIME_IDS.reserve());
     }
 
-    private record RuntimeIdReservationAdapter(RapierRuntimeIdAllocator.Reservation delegate)
-            implements RuntimeIdReservation {
+    @Override
+    public <T> T withReservedRuntimeId(
+            final RuntimeIdReservation reservation,
+            final Supplier<T> allocation
+    ) {
+        Objects.requireNonNull(reservation, "reservation");
+        Objects.requireNonNull(allocation, "allocation");
+        if (!(reservation instanceof final RuntimeIdReservationAdapter adapter) || adapter.owner != this) {
+            throw new IllegalArgumentException("Runtime ID reservation was not created by this physics pipeline");
+        }
+        return RUNTIME_IDS.withReservation(adapter.delegate, allocation);
+    }
+
+    private record RuntimeIdReservationAdapter(
+            TransactionalRapierPhysicsPipeline owner,
+            RapierRuntimeIdAllocator.Reservation delegate
+    ) implements RuntimeIdReservation {
         private RuntimeIdReservationAdapter {
-            if (delegate == null) {
-                throw new NullPointerException("delegate");
-            }
+            Objects.requireNonNull(owner, "owner");
+            Objects.requireNonNull(delegate, "delegate");
         }
 
         @Override
