@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.sublevel.plot;
 
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
+import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
@@ -18,8 +19,9 @@ import java.util.Set;
  * Mutation-free runtime capability gate for transactional SubLevel reconstruction.
  *
  * <p>Serialized-data validation alone is not enough: the target physics implementation must prove
- * that both transaction-owned section state and the provisional target body itself can be restored
- * exactly after a partial failure. Pipelines that do not explicitly opt in are rejected.</p>
+ * that transaction-owned section state and the provisional target body can be restored exactly,
+ * and must expose an operational runtime-ID reservation that can participate in rollback. Pipelines
+ * that do not explicitly opt in and implement the required operation are rejected.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionRuntimePreflight {
@@ -30,6 +32,7 @@ public final class SubLevelReconstructionRuntimePreflight {
         NOT_SERVER_THREAD,
         CONTAINER_UNAVAILABLE,
         PHYSICS_SYSTEM_UNAVAILABLE,
+        RUNTIME_ID_RESERVATION_UNAVAILABLE,
         EXACT_SECTION_ROLLBACK_UNAVAILABLE,
         PROVISIONAL_BODY_LIFECYCLE_UNAVAILABLE
     }
@@ -76,12 +79,15 @@ public final class SubLevelReconstructionRuntimePreflight {
                 pipeline instanceof final SubLevelReconstructionPhysicsSupport support
                         ? support.reconstructionCapabilities()
                         : null;
-        return validateCapabilities(true, capabilities);
+        final boolean runtimeIdReservationAvailable =
+                pipeline instanceof SubLevelReconstructionRuntimeIdSupport;
+        return validateCapabilities(true, runtimeIdReservationAvailable, capabilities);
     }
 
     /** Package-private pure seam for executable capability tests. */
     static Result validateCapabilities(
             final boolean physicsSystemAvailable,
+            final boolean runtimeIdReservationAvailable,
             @Nullable final SubLevelReconstructionPhysicsSupport.Capabilities capabilities
     ) {
         final EnumSet<Failure> failures = EnumSet.noneOf(Failure.class);
@@ -90,6 +96,9 @@ public final class SubLevelReconstructionRuntimePreflight {
             return new Result(failures);
         }
 
+        if (!runtimeIdReservationAvailable) {
+            failures.add(Failure.RUNTIME_ID_RESERVATION_UNAVAILABLE);
+        }
         if (capabilities == null || !capabilities.exactSectionRollback()) {
             failures.add(Failure.EXACT_SECTION_ROLLBACK_UNAVAILABLE);
         }
