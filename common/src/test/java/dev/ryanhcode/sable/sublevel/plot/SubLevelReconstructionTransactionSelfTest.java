@@ -21,7 +21,11 @@ public final class SubLevelReconstructionTransactionSelfTest {
         rollbackRunsEveryActionInReverseOrder();
         successfulRollbackIsTerminal();
         commitRunsVerificationAndDiscardsRollbackActions();
+        commitSealRunsAfterAllVerification();
         commitVerificationFailureLeavesRollbackAvailable();
+        verificationFailureSkipsCommitSeal();
+        commitSealFailureLeavesRollbackAvailable();
+        rollbackDiscardsCommitSealWithoutRunningIt();
         allCommitVerificationsRunAndReportFailures();
         invalidStateTransitionsAreRejected();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_TRANSACTION_SELF_TEST: PASS");
@@ -49,6 +53,7 @@ public final class SubLevelReconstructionTransactionSelfTest {
         assert report.cleanupFailures().getFirst().label().equals("middle");
         assert transaction.pendingRollbackCount() == 0;
         assert transaction.pendingCommitVerificationCount() == 0;
+        assert transaction.pendingCommitSealCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.ROLLBACK_FAILED;
     }
 
@@ -60,6 +65,8 @@ public final class SubLevelReconstructionTransactionSelfTest {
         transaction.registerRollback("two", cleanups::incrementAndGet);
         transaction.registerCommitVerification("unused", () -> {
         });
+        transaction.registerCommitSeal("unused-seal", () -> {
+        });
 
         final SubLevelReconstructionTransaction.RollbackReport report =
                 transaction.rollback(new RuntimeException("injected failure"));
@@ -68,6 +75,7 @@ public final class SubLevelReconstructionTransactionSelfTest {
         assert report.cleanupFailures().isEmpty();
         assert cleanups.get() == 2;
         assert transaction.pendingCommitVerificationCount() == 0;
+        assert transaction.pendingCommitSealCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.ROLLED_BACK;
         assertThrows(() -> transaction.rollback(new RuntimeException("second rollback")));
         assertThrows(transaction::commit);
@@ -90,9 +98,25 @@ public final class SubLevelReconstructionTransactionSelfTest {
         assert cleanups.get() == 0;
         assert transaction.pendingRollbackCount() == 0;
         assert transaction.pendingCommitVerificationCount() == 0;
+        assert transaction.pendingCommitSealCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.COMMITTED;
         assertThrows(transaction::commit);
         assertThrows(() -> transaction.rollback(new RuntimeException("after commit")));
+    }
+
+    private static void commitSealRunsAfterAllVerification() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final List<String> order = new ArrayList<>();
+        transaction.beginMaterialization();
+        transaction.registerCommitVerification("first", () -> order.add("verify-first"));
+        transaction.registerCommitVerification("second", () -> order.add("verify-second"));
+        transaction.registerCommitSeal("runtime-id", () -> order.add("seal"));
+
+        transaction.commit();
+
+        assert order.equals(List.of("verify-first", "verify-second", "seal"));
+        assert transaction.state() == SubLevelReconstructionTransaction.State.COMMITTED;
+        assert transaction.pendingCommitSealCount() == 0;
     }
 
     private static void commitVerificationFailureLeavesRollbackAvailable() {
@@ -121,6 +145,77 @@ public final class SubLevelReconstructionTransactionSelfTest {
         final SubLevelReconstructionTransaction.RollbackReport rollback = transaction.rollback(thrown);
         assert rollback.successful();
         assert cleanups.get() == 1;
+    }
+
+    private static void verificationFailureSkipsCommitSeal() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final AtomicInteger seals = new AtomicInteger();
+        transaction.beginMaterialization();
+        transaction.registerRollback("resource", () -> {
+        });
+        transaction.registerCommitVerification("broken", () -> {
+            throw new IllegalStateException("verification failed");
+        });
+        transaction.registerCommitSeal("must-not-run", seals::incrementAndGet);
+
+        SubLevelReconstructionTransaction.CommitVerificationException thrown = null;
+        try {
+            transaction.commit();
+        } catch (final SubLevelReconstructionTransaction.CommitVerificationException exception) {
+            thrown = exception;
+        }
+
+        assert thrown != null;
+        assert seals.get() == 0;
+        assert transaction.pendingCommitSealCount() == 1;
+        assert transaction.rollback(thrown).successful();
+    }
+
+    private static void commitSealFailureLeavesRollbackAvailable() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final AtomicInteger cleanups = new AtomicInteger();
+        transaction.beginMaterialization();
+        transaction.registerRollback("resource", cleanups::incrementAndGet);
+        transaction.registerCommitVerification("resource", () -> {
+        });
+        transaction.registerCommitSeal("runtime-id", () -> {
+            throw new IllegalStateException("atomic seal rejected");
+        });
+
+        SubLevelReconstructionTransaction.CommitSealException thrown = null;
+        try {
+            transaction.commit();
+        } catch (final SubLevelReconstructionTransaction.CommitSealException exception) {
+            thrown = exception;
+        }
+
+        assert thrown != null;
+        assert thrown.label().equals("runtime-id");
+        assert transaction.state() == SubLevelReconstructionTransaction.State.MATERIALIZING;
+        assert transaction.pendingRollbackCount() == 1;
+        assert transaction.pendingCommitVerificationCount() == 1;
+        assert transaction.pendingCommitSealCount() == 1;
+
+        final SubLevelReconstructionTransaction.RollbackReport rollback = transaction.rollback(thrown);
+        assert rollback.successful();
+        assert cleanups.get() == 1;
+        assert transaction.pendingCommitSealCount() == 0;
+    }
+
+    private static void rollbackDiscardsCommitSealWithoutRunningIt() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final AtomicInteger seals = new AtomicInteger();
+        transaction.beginMaterialization();
+        transaction.registerRollback("resource", () -> {
+        });
+        transaction.registerCommitSeal("unused", seals::incrementAndGet);
+
+        final SubLevelReconstructionTransaction.RollbackReport report =
+                transaction.rollback(new IllegalStateException("materialization failed"));
+
+        assert report.successful();
+        assert seals.get() == 0;
+        assert transaction.pendingCommitSealCount() == 0;
     }
 
     private static void allCommitVerificationsRunAndReportFailures() {
@@ -159,11 +254,17 @@ public final class SubLevelReconstructionTransactionSelfTest {
         }));
         assertThrows(() -> transaction.registerCommitVerification("too-early", () -> {
         }));
+        assertThrows(() -> transaction.registerCommitSeal("too-early", () -> {
+        }));
         assertThrows(transaction::commit);
         assertThrows(() -> transaction.rollback(new RuntimeException("too-early")));
 
         transaction.beginMaterialization();
         assertThrows(transaction::beginMaterialization);
+        transaction.registerCommitSeal("only", () -> {
+        });
+        assertThrows(() -> transaction.registerCommitSeal("duplicate", () -> {
+        }));
     }
 
     private static SubLevelReconstructionTransaction transaction() {
