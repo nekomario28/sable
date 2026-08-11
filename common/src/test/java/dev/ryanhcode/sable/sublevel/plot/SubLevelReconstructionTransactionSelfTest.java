@@ -20,7 +20,9 @@ public final class SubLevelReconstructionTransactionSelfTest {
     public static void main(final String[] args) {
         rollbackRunsEveryActionInReverseOrder();
         successfulRollbackIsTerminal();
-        commitDiscardsRollbackActionsAndIsTerminal();
+        commitRunsVerificationAndDiscardsRollbackActions();
+        commitVerificationFailureLeavesRollbackAvailable();
+        allCommitVerificationsRunAndReportFailures();
         invalidStateTransitionsAreRejected();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_TRANSACTION_SELF_TEST: PASS");
     }
@@ -46,6 +48,7 @@ public final class SubLevelReconstructionTransactionSelfTest {
         assert report.cleanupFailures().size() == 1;
         assert report.cleanupFailures().getFirst().label().equals("middle");
         assert transaction.pendingRollbackCount() == 0;
+        assert transaction.pendingCommitVerificationCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.ROLLBACK_FAILED;
     }
 
@@ -55,6 +58,8 @@ public final class SubLevelReconstructionTransactionSelfTest {
         transaction.beginMaterialization();
         transaction.registerRollback("one", cleanups::incrementAndGet);
         transaction.registerRollback("two", cleanups::incrementAndGet);
+        transaction.registerCommitVerification("unused", () -> {
+        });
 
         final SubLevelReconstructionTransaction.RollbackReport report =
                 transaction.rollback(new RuntimeException("injected failure"));
@@ -62,30 +67,97 @@ public final class SubLevelReconstructionTransactionSelfTest {
         assert report.successful();
         assert report.cleanupFailures().isEmpty();
         assert cleanups.get() == 2;
+        assert transaction.pendingCommitVerificationCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.ROLLED_BACK;
         assertThrows(() -> transaction.rollback(new RuntimeException("second rollback")));
         assertThrows(transaction::commit);
     }
 
-    private static void commitDiscardsRollbackActionsAndIsTerminal() {
+    private static void commitRunsVerificationAndDiscardsRollbackActions() {
         final SubLevelReconstructionTransaction transaction = transaction();
         final AtomicInteger cleanups = new AtomicInteger();
+        final List<String> verificationOrder = new ArrayList<>();
         transaction.beginMaterialization();
         transaction.registerRollback("should-not-run", cleanups::incrementAndGet);
+        transaction.registerCommitVerification("first", () -> verificationOrder.add("first"));
+        transaction.registerCommitVerification("second", () -> verificationOrder.add("second"));
         assert transaction.pendingRollbackCount() == 1;
+        assert transaction.pendingCommitVerificationCount() == 2;
 
         transaction.commit();
 
+        assert verificationOrder.equals(List.of("first", "second"));
         assert cleanups.get() == 0;
         assert transaction.pendingRollbackCount() == 0;
+        assert transaction.pendingCommitVerificationCount() == 0;
         assert transaction.state() == SubLevelReconstructionTransaction.State.COMMITTED;
         assertThrows(transaction::commit);
         assertThrows(() -> transaction.rollback(new RuntimeException("after commit")));
     }
 
+    private static void commitVerificationFailureLeavesRollbackAvailable() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final AtomicInteger cleanups = new AtomicInteger();
+        transaction.beginMaterialization();
+        transaction.registerRollback("resource", cleanups::incrementAndGet);
+        transaction.registerCommitVerification("resource", () -> {
+            throw new IllegalStateException("ownership drift");
+        });
+
+        SubLevelReconstructionTransaction.CommitVerificationException thrown = null;
+        try {
+            transaction.commit();
+        } catch (final SubLevelReconstructionTransaction.CommitVerificationException exception) {
+            thrown = exception;
+        }
+
+        assert thrown != null;
+        assert thrown.failures().size() == 1;
+        assert thrown.failures().getFirst().label().equals("resource");
+        assert transaction.state() == SubLevelReconstructionTransaction.State.MATERIALIZING;
+        assert transaction.pendingRollbackCount() == 1;
+        assert transaction.pendingCommitVerificationCount() == 1;
+
+        final SubLevelReconstructionTransaction.RollbackReport rollback = transaction.rollback(thrown);
+        assert rollback.successful();
+        assert cleanups.get() == 1;
+    }
+
+    private static void allCommitVerificationsRunAndReportFailures() {
+        final SubLevelReconstructionTransaction transaction = transaction();
+        final List<String> order = new ArrayList<>();
+        transaction.beginMaterialization();
+        transaction.registerCommitVerification("first", () -> {
+            order.add("first");
+            throw new IllegalStateException("first failure");
+        });
+        transaction.registerCommitVerification("middle", () -> order.add("middle"));
+        transaction.registerCommitVerification("last", () -> {
+            order.add("last");
+            throw new IllegalArgumentException("last failure");
+        });
+
+        SubLevelReconstructionTransaction.CommitVerificationException thrown = null;
+        try {
+            transaction.commit();
+        } catch (final SubLevelReconstructionTransaction.CommitVerificationException exception) {
+            thrown = exception;
+        }
+
+        assert thrown != null;
+        assert order.equals(List.of("first", "middle", "last"));
+        assert thrown.failures().size() == 2;
+        assert thrown.failures().get(0).label().equals("first");
+        assert thrown.failures().get(1).label().equals("last");
+        assert transaction.state() == SubLevelReconstructionTransaction.State.MATERIALIZING;
+        assert transaction.rollback(thrown).successful();
+    }
+
     private static void invalidStateTransitionsAreRejected() {
         final SubLevelReconstructionTransaction transaction = transaction();
         assertThrows(() -> transaction.registerRollback("too-early", () -> {
+        }));
+        assertThrows(() -> transaction.registerCommitVerification("too-early", () -> {
         }));
         assertThrows(transaction::commit);
         assertThrows(() -> transaction.rollback(new RuntimeException("too-early")));
