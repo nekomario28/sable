@@ -33,6 +33,20 @@ final class RapierRuntimeIdAllocatorTest {
     }
 
     @Test
+    void nestedReservationsRollbackInStrictReverseOrder() {
+        final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
+        final RapierRuntimeIdAllocator.Reservation first = allocator.reserve();
+        final RapierRuntimeIdAllocator.Reservation second = allocator.reserve();
+        assertEquals(0, first.id());
+        assertEquals(1, second.id());
+
+        second.rollback();
+        first.rollback();
+
+        assertEquals(0, allocator.next());
+    }
+
+    @Test
     void committedReservationIsNotReused() {
         final RapierRuntimeIdAllocator allocator = new RapierRuntimeIdAllocator();
         final RapierRuntimeIdAllocator.Reservation reservation = allocator.reserve();
