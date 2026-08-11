@@ -1,5 +1,6 @@
 package dev.ryanhcode.sable.sublevel.plot;
 
+import net.minecraft.SharedConstants;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.server.Bootstrap;
@@ -13,6 +14,7 @@ public final class SubLevelReconstructionPayloadPreflightSelfTest {
     }
 
     public static void main(final String[] args) {
+        SharedConstants.tryDetectVersion();
         Bootstrap.bootStrap();
         allAirChunkPayloadIsAccepted();
         rootLightStateIsRejected();
