@@ -40,16 +40,13 @@ public final class SubLevelSerializationChunkMetadata {
         for (final PlotChunkHolder holder : plot.getLoadedChunks()) {
             final LevelChunk chunk = Objects.requireNonNull(holder.getChunk(), "serialized plot chunk");
             final ChunkPos local = plot.toLocal(holder.getPos());
-            final CompoundTag chunkTag = requireChunkTag(chunks, local);
+            final CompoundTag chunkTag = writeLightState(chunks, local, chunk.isLightCorrect());
 
-            chunkTag.putBoolean("isLightOn", chunk.isLightCorrect());
             SablePlotPlatform.INSTANCE.writeLightData(chunkTag, level.registryAccess(), chunk);
             SablePlotPlatform.INSTANCE.writeChunkAttachments(chunkTag, level.registryAccess(), chunk);
         }
 
-        // The loader consumes this field per chunk. Keeping a plot-root copy is ambiguous and can
-        // only represent whichever chunk happened to serialize last.
-        plotTag.remove("isLightOn");
+        removeLegacyRootLightState(plotTag);
         return plotTag;
     }
 
@@ -66,5 +63,19 @@ public final class SubLevelSerializationChunkMetadata {
             throw new IllegalStateException("Serialized plot is missing chunk metadata target " + key);
         }
         return chunks.getCompound(key);
+    }
+
+    static CompoundTag writeLightState(
+            final CompoundTag chunks,
+            final ChunkPos local,
+            final boolean isLightOn
+    ) {
+        final CompoundTag chunkTag = requireChunkTag(chunks, local);
+        chunkTag.putBoolean("isLightOn", isLightOn);
+        return chunkTag;
+    }
+
+    static void removeLegacyRootLightState(final CompoundTag plotTag) {
+        plotTag.remove("isLightOn");
     }
 }
