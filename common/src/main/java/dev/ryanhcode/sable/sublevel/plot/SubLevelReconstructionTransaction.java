@@ -15,6 +15,10 @@ import java.util.Objects;
  * register their exact inverse before making the corresponding change. A pre-commit failure then
  * executes every registered inverse in strict reverse order, continuing after individual cleanup
  * failures so rollback evidence is complete instead of stopping at the first exception.</p>
+ *
+ * <p>Construction and state-changing operations are package-private on purpose. External callers
+ * must enter through {@link SubLevelReconstructionAttempt#prepare} so mutation cannot begin from a
+ * plan that skipped fresh container-baseline capture.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionTransaction {
@@ -79,7 +83,7 @@ public final class SubLevelReconstructionTransaction {
     private final Deque<RegisteredRollback> rollbackActions = new ArrayDeque<>();
     private State state = State.PREPARED;
 
-    public SubLevelReconstructionTransaction(final SubLevelReconstructionPlan plan) {
+    SubLevelReconstructionTransaction(final SubLevelReconstructionPlan plan) {
         this.plan = Objects.requireNonNull(plan, "plan");
     }
 
@@ -94,7 +98,7 @@ public final class SubLevelReconstructionTransaction {
     /**
      * Enters the only state in which reconstruction mutations and rollback registration are allowed.
      */
-    public void beginMaterialization() {
+    void beginMaterialization() {
         this.requireState(State.PREPARED, "begin materialization");
         this.state = State.MATERIALIZING;
     }
@@ -104,7 +108,7 @@ public final class SubLevelReconstructionTransaction {
      *
      * <p>Actions are executed in reverse registration order.</p>
      */
-    public void registerRollback(final String label, final RollbackAction action) {
+    void registerRollback(final String label, final RollbackAction action) {
         this.requireState(State.MATERIALIZING, "register rollback action");
         this.rollbackActions.push(new RegisteredRollback(label, action));
     }
@@ -112,7 +116,7 @@ public final class SubLevelReconstructionTransaction {
     /**
      * Seals a successfully verified transaction. Rollback actions are discarded only at commit.
      */
-    public void commit() {
+    void commit() {
         this.requireState(State.MATERIALIZING, "commit");
         this.rollbackActions.clear();
         this.state = State.COMMITTED;
@@ -121,7 +125,7 @@ public final class SubLevelReconstructionTransaction {
     /**
      * Runs every registered inverse in reverse order and records all cleanup failures.
      */
-    public RollbackReport rollback(final Throwable trigger) {
+    RollbackReport rollback(final Throwable trigger) {
         this.requireState(State.MATERIALIZING, "rollback");
         Objects.requireNonNull(trigger, "trigger");
 
