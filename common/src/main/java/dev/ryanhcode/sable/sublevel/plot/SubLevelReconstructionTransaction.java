@@ -40,6 +40,17 @@ public final class SubLevelReconstructionTransaction {
         void run() throws Exception;
     }
 
+    /**
+     * The single final irreversible transition after every read-only commit verification passes.
+     *
+     * <p>A seal implementation must be atomic with respect to failure: if it throws, it must leave
+     * all transaction-owned resources unchanged and rollbackable.</p>
+     */
+    @FunctionalInterface
+    public interface CommitSealAction {
+        void run() throws Exception;
+    }
+
     public record CleanupFailure(String label, Exception cause) {
         public CleanupFailure {
             Objects.requireNonNull(label, "label");
@@ -79,6 +90,23 @@ public final class SubLevelReconstructionTransaction {
 
         public List<CommitVerificationFailure> failures() {
             return this.failures;
+        }
+    }
+
+    /**
+     * Raised when the final atomic seal rejects commit. The transaction stays MATERIALIZING and
+     * keeps its rollback stack because a conforming seal has not changed any resource on failure.
+     */
+    public static final class CommitSealException extends RuntimeException {
+        private final String label;
+
+        private CommitSealException(final String label, final Exception cause) {
+            super("Reconstruction commit seal failed: " + label, cause);
+            this.label = label;
+        }
+
+        public String label() {
+            return this.label;
         }
     }
 
@@ -126,9 +154,20 @@ public final class SubLevelReconstructionTransaction {
         }
     }
 
+    private record RegisteredCommitSeal(String label, CommitSealAction action) {
+        private RegisteredCommitSeal {
+            Objects.requireNonNull(label, "label");
+            Objects.requireNonNull(action, "action");
+            if (label.isBlank()) {
+                throw new IllegalArgumentException("Commit seal label cannot be blank");
+            }
+        }
+    }
+
     private final SubLevelReconstructionPlan plan;
     private final Deque<RegisteredRollback> rollbackActions = new ArrayDeque<>();
     private final List<RegisteredCommitVerification> commitVerifications = new ArrayList<>();
+    private RegisteredCommitSeal commitSeal;
     private State state = State.PREPARED;
 
     SubLevelReconstructionTransaction(final SubLevelReconstructionPlan plan) {
@@ -174,7 +213,24 @@ public final class SubLevelReconstructionTransaction {
     }
 
     /**
-     * Runs all read-only resource verification and commits only when all checks pass.
+     * Registers the single final irreversible commit transition.
+     *
+     * <p>The seal runs only after every read-only verification has passed. If it throws, it must
+     * have changed nothing; the transaction remains MATERIALIZING with every rollback action intact.
+     * Only one seal may be registered so there is no partially completed sequence of irreversible
+     * commit actions.</p>
+     */
+    void registerCommitSeal(final String label, final CommitSealAction action) {
+        this.requireState(State.MATERIALIZING, "register commit seal");
+        if (this.commitSeal != null) {
+            throw new IllegalStateException("Reconstruction transaction already has a commit seal");
+        }
+        this.commitSeal = new RegisteredCommitSeal(label, action);
+    }
+
+    /**
+     * Runs all read-only resource verification, then the single atomic seal, and commits only when
+     * every step succeeds.
      */
     void commit() {
         this.requireState(State.MATERIALIZING, "commit");
@@ -192,8 +248,17 @@ public final class SubLevelReconstructionTransaction {
             throw new CommitVerificationException(failures);
         }
 
+        if (this.commitSeal != null) {
+            try {
+                this.commitSeal.action().run();
+            } catch (final Exception exception) {
+                throw new CommitSealException(this.commitSeal.label(), exception);
+            }
+        }
+
         this.rollbackActions.clear();
         this.commitVerifications.clear();
+        this.commitSeal = null;
         this.state = State.COMMITTED;
     }
 
@@ -214,6 +279,7 @@ public final class SubLevelReconstructionTransaction {
             }
         }
         this.commitVerifications.clear();
+        this.commitSeal = null;
 
         this.state = failures.isEmpty() ? State.ROLLED_BACK : State.ROLLBACK_FAILED;
         return new RollbackReport(this.state, trigger, failures);
@@ -227,6 +293,11 @@ public final class SubLevelReconstructionTransaction {
     @ApiStatus.Internal
     int pendingCommitVerificationCount() {
         return this.commitVerifications.size();
+    }
+
+    @ApiStatus.Internal
+    int pendingCommitSealCount() {
+        return this.commitSeal == null ? 0 : 1;
     }
 
     private void requireState(final State expected, final String operation) {
