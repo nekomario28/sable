@@ -11,7 +11,9 @@ public final class SubLevelReconstructionRuntimeOperationSelfTest {
 
     public static void main(final String[] args) {
         capabilityBooleanWithoutSectionOperationFailsClosed();
+        capabilityBooleanWithoutBodyOperationFailsClosed();
         sectionOperationDoesNotReplaceCapabilityProof();
+        bodyOperationDoesNotReplaceCapabilityProof();
         completeOperationsAndCapabilitiesAreAccepted();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_RUNTIME_OPERATION_SELF_TEST: PASS");
     }
@@ -22,6 +24,7 @@ public final class SubLevelReconstructionRuntimeOperationSelfTest {
                         true,
                         true,
                         false,
+                        true,
                         new SubLevelReconstructionPhysicsSupport.Capabilities(true, true)
                 );
 
@@ -31,9 +34,26 @@ public final class SubLevelReconstructionRuntimeOperationSelfTest {
         ));
     }
 
+    private static void capabilityBooleanWithoutBodyOperationFailsClosed() {
+        final SubLevelReconstructionRuntimePreflight.Result result =
+                SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
+                        true,
+                        true,
+                        false,
+                        new SubLevelReconstructionPhysicsSupport.Capabilities(true, true)
+                );
+
+        assert !result.accepted();
+        assert result.failures().equals(Set.of(
+                SubLevelReconstructionRuntimePreflight.Failure.BODY_LIFECYCLE_OPERATION_UNAVAILABLE
+        ));
+    }
+
     private static void sectionOperationDoesNotReplaceCapabilityProof() {
         final SubLevelReconstructionRuntimePreflight.Result result =
                 SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
                         true,
                         true,
                         true,
@@ -46,9 +66,26 @@ public final class SubLevelReconstructionRuntimeOperationSelfTest {
         ));
     }
 
+    private static void bodyOperationDoesNotReplaceCapabilityProof() {
+        final SubLevelReconstructionRuntimePreflight.Result result =
+                SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
+                        true,
+                        true,
+                        true,
+                        new SubLevelReconstructionPhysicsSupport.Capabilities(true, false)
+                );
+
+        assert !result.accepted();
+        assert result.failures().equals(Set.of(
+                SubLevelReconstructionRuntimePreflight.Failure.PROVISIONAL_BODY_LIFECYCLE_UNAVAILABLE
+        ));
+    }
+
     private static void completeOperationsAndCapabilitiesAreAccepted() {
         final SubLevelReconstructionRuntimePreflight.Result result =
                 SubLevelReconstructionRuntimePreflight.validateCapabilities(
+                        true,
                         true,
                         true,
                         true,
