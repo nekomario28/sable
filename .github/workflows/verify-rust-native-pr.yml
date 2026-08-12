@@ -1,0 +1,50 @@
+name: Verify Rust Native PR
+
+on:
+  pull_request:
+    paths:
+      - 'sable_rapier/src/main/rust/**'
+      - 'sable_rapier/src/main/java/dev/ryanhcode/sable/physics/impl/rapier/**'
+      - 'sable_rapier/build.gradle'
+      - '.github/workflows/verify-rust-native-pr.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-native:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Setup Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache cargo
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/sable_rapier/build/cargo
+          key: ${{ runner.os }}-rust-native-${{ hashFiles('sable_rapier/src/main/rust/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-rust-native-
+
+      - name: Rebuild all Rapier natives
+        run: ./gradlew sable_rapier:buildImages sable_rapier:buildRustNatives
+
+      - name: Take ownership of generated files
+        run: sudo chown -R $USER:$USER .
+
+      - name: Run NeoForge GameTests against rebuilt native
+        run: ./gradlew neoforge:runGameTest
