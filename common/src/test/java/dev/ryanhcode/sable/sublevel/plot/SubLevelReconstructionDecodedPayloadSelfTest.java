@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.sublevel.plot;
 
 import com.mojang.serialization.Codec;
 import dev.ryanhcode.sable.companion.math.BoundingBox3d;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
 import net.minecraft.SharedConstants;
@@ -35,6 +36,8 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         invalidSectionIndexFailsClosed();
         repeatedFailureTracksEveryChunk();
         decodedCopiesAreDefensivelyOwned();
+        decodedBoundsMatchPlotChunkHolderSemantics();
+        allAirDecodedBoundsFailClosed();
         decodeRejectionOwnsFailureEvidence();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_DECODED_PAYLOAD_SELF_TEST: PASS");
     }
@@ -119,6 +122,52 @@ public final class SubLevelReconstructionDecodedPayloadSelfTest {
         assertUnsupported(() -> decoded.sections().clear());
         assertUnsupported(() -> decoded.blockTicks().clear());
         assertUnsupported(() -> decoded.blockEntities().clear());
+    }
+
+    private static void decodedBoundsMatchPlotChunkHolderSemantics() {
+        final long localKey = ChunkPos.asLong(1, 2);
+        final SubLevelReconstructionDecodedPayload decoded =
+                SubLevelReconstructionDecodedPayload.decodeFrom(
+                                staged(List.of(chunk(localKey, "3", Blocks.STONE.defaultBlockState(), false))),
+                                24
+                        )
+                        .payload()
+                        .orElseThrow();
+        final SubLevelReconstructionDecodedPayload.DecodedChunk decodedChunk = decoded.chunks().getFirst();
+        final int minSection = -4;
+        final SubLevelReconstructionDecodedBounds.Capture capture =
+                SubLevelReconstructionDecodedBounds.computeFrom(decoded, minSection);
+
+        assert capture.accepted();
+        final BoundingBox3ic bounds = capture.bounds().orElseThrow();
+        final int globalChunkX = ChunkPos.getX(decodedChunk.targetGlobalChunkKey());
+        final int globalChunkZ = ChunkPos.getZ(decodedChunk.targetGlobalChunkKey());
+        final int sectionY = minSection + decodedChunk.sections().getFirst().sectionIndex();
+        assert bounds.minX() == globalChunkX * 16;
+        assert bounds.maxX() == globalChunkX * 16 + 15;
+        assert bounds.minY() == sectionY * 16;
+        assert bounds.maxY() == sectionY * 16 + 15;
+        assert bounds.minZ() == globalChunkZ * 16;
+        assert bounds.maxZ() == globalChunkZ * 16 + 15;
+    }
+
+    private static void allAirDecodedBoundsFailClosed() {
+        final long localKey = ChunkPos.asLong(0, 0);
+        final SubLevelReconstructionDecodedPayload decoded =
+                SubLevelReconstructionDecodedPayload.decodeFrom(
+                                staged(List.of(chunk(localKey, "0", Blocks.AIR.defaultBlockState(), false))),
+                                24
+                        )
+                        .payload()
+                        .orElseThrow();
+        final SubLevelReconstructionDecodedBounds.Capture capture =
+                SubLevelReconstructionDecodedBounds.computeFrom(decoded, -4);
+
+        assert !capture.accepted();
+        assert capture.bounds().isEmpty();
+        assert capture.failures().equals(Set.of(
+                SubLevelReconstructionDecodedBounds.Failure.EMPTY_NON_AIR_CONTENT
+        ));
     }
 
     private static void decodeRejectionOwnsFailureEvidence() {
