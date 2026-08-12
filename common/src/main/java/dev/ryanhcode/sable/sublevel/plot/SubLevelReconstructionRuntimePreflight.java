@@ -91,7 +91,24 @@ public final class SubLevelReconstructionRuntimePreflight {
         );
     }
 
-    /** Package-private pure seam for executable capability tests. */
+    /**
+     * Legacy package-private seam retained for the existing capability matrix. It models the
+     * section operation as present; dedicated section-operation tests use the explicit overload.
+     */
+    static Result validateCapabilities(
+            final boolean physicsSystemAvailable,
+            final boolean runtimeIdReservationAvailable,
+            @Nullable final SubLevelReconstructionPhysicsSupport.Capabilities capabilities
+    ) {
+        return validateCapabilities(
+                physicsSystemAvailable,
+                runtimeIdReservationAvailable,
+                true,
+                capabilities
+        );
+    }
+
+    /** Package-private pure seam for executable operational capability tests. */
     static Result validateCapabilities(
             final boolean physicsSystemAvailable,
             final boolean runtimeIdReservationAvailable,
