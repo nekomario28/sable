@@ -1,6 +1,7 @@
 package dev.ryanhcode.sable.sublevel.plot;
 
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
+import dev.ryanhcode.sable.api.physics.SubLevelReconstructionBodySupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport;
@@ -21,8 +22,8 @@ import java.util.Set;
  *
  * <p>Serialized-data validation alone is not enough: the target physics implementation must prove
  * that transaction-owned section state and the provisional target body can be restored exactly,
- * and must expose the operational runtime-ID and owner-aware section operations that participate in
- * rollback. Pipelines that only advertise capability booleans are rejected.</p>
+ * and must expose the operational runtime-ID, owner-aware section and provisional-body operations
+ * that participate in rollback. Pipelines that only advertise capability booleans are rejected.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionRuntimePreflight {
@@ -35,6 +36,7 @@ public final class SubLevelReconstructionRuntimePreflight {
         PHYSICS_SYSTEM_UNAVAILABLE,
         RUNTIME_ID_RESERVATION_UNAVAILABLE,
         SECTION_OWNERSHIP_OPERATION_UNAVAILABLE,
+        BODY_LIFECYCLE_OPERATION_UNAVAILABLE,
         EXACT_SECTION_ROLLBACK_UNAVAILABLE,
         PROVISIONAL_BODY_LIFECYCLE_UNAVAILABLE
     }
@@ -83,17 +85,20 @@ public final class SubLevelReconstructionRuntimePreflight {
                 pipeline instanceof SubLevelReconstructionRuntimeIdSupport;
         final boolean sectionOwnershipOperationAvailable =
                 pipeline instanceof SubLevelReconstructionSectionSupport;
+        final boolean bodyLifecycleOperationAvailable =
+                pipeline instanceof SubLevelReconstructionBodySupport;
         return validateCapabilities(
                 true,
                 runtimeIdReservationAvailable,
                 sectionOwnershipOperationAvailable,
+                bodyLifecycleOperationAvailable,
                 capabilities
         );
     }
 
     /**
-     * Legacy package-private seam retained for the existing capability matrix. It models the
-     * section operation as present; dedicated section-operation tests use the explicit overload.
+     * Legacy package-private seam retained for the original capability matrix. It models both
+     * newer operational interfaces as present; dedicated operation tests use explicit overloads.
      */
     static Result validateCapabilities(
             final boolean physicsSystemAvailable,
@@ -104,6 +109,26 @@ public final class SubLevelReconstructionRuntimePreflight {
                 physicsSystemAvailable,
                 runtimeIdReservationAvailable,
                 true,
+                true,
+                capabilities
+        );
+    }
+
+    /**
+     * Legacy section-operation seam retained for its existing test matrix. It models the body
+     * operation as present; dedicated body-operation tests use the explicit overload.
+     */
+    static Result validateCapabilities(
+            final boolean physicsSystemAvailable,
+            final boolean runtimeIdReservationAvailable,
+            final boolean sectionOwnershipOperationAvailable,
+            @Nullable final SubLevelReconstructionPhysicsSupport.Capabilities capabilities
+    ) {
+        return validateCapabilities(
+                physicsSystemAvailable,
+                runtimeIdReservationAvailable,
+                sectionOwnershipOperationAvailable,
+                true,
                 capabilities
         );
     }
@@ -113,6 +138,7 @@ public final class SubLevelReconstructionRuntimePreflight {
             final boolean physicsSystemAvailable,
             final boolean runtimeIdReservationAvailable,
             final boolean sectionOwnershipOperationAvailable,
+            final boolean bodyLifecycleOperationAvailable,
             @Nullable final SubLevelReconstructionPhysicsSupport.Capabilities capabilities
     ) {
         final EnumSet<Failure> failures = EnumSet.noneOf(Failure.class);
@@ -126,6 +152,9 @@ public final class SubLevelReconstructionRuntimePreflight {
         }
         if (!sectionOwnershipOperationAvailable) {
             failures.add(Failure.SECTION_OWNERSHIP_OPERATION_UNAVAILABLE);
+        }
+        if (!bodyLifecycleOperationAvailable) {
+            failures.add(Failure.BODY_LIFECYCLE_OPERATION_UNAVAILABLE);
         }
         if (capabilities == null || !capabilities.exactSectionRollback()) {
             failures.add(Failure.EXACT_SECTION_ROLLBACK_UNAVAILABLE);
