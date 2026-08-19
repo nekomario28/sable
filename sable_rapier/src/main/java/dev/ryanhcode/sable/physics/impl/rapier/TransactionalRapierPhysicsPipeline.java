@@ -7,6 +7,8 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.Nullable;
+import org.joml.Vector3dc;
 
 import java.util.Objects;
 import java.util.function.Supplier;
@@ -25,11 +27,28 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     private final ServerLevel reconstructionLevel;
     private final RapierVoxelColliderBakery reconstructionColliderBakery;
+    private boolean reconstructionSceneInitialized;
 
     TransactionalRapierPhysicsPipeline(final ServerLevel level) {
         super(level);
         this.reconstructionLevel = Objects.requireNonNull(level, "level");
         this.reconstructionColliderBakery = new RapierVoxelColliderBakery(level);
+    }
+
+    @Override
+    public void init(@Nullable final Vector3dc gravity, final double universalDrag) {
+        super.init(gravity, universalDrag);
+        this.reconstructionSceneInitialized = true;
+    }
+
+    @Override
+    public void dispose() {
+        if (this.reconstructionSceneInitialized
+                && !RapierReconstructionNative.clearReconstructionSectionOwnershipForScene(this.getSceneHandle())) {
+            throw new IllegalStateException("Rapier refused to dispose a scene with open reconstruction section ownership");
+        }
+        super.dispose();
+        this.reconstructionSceneInitialized = false;
     }
 
     @Override
