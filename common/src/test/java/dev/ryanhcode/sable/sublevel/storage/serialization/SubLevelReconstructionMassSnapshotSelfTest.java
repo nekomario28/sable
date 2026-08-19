@@ -81,7 +81,7 @@ public final class SubLevelReconstructionMassSnapshotSelfTest {
 
     private static void inverseMassMismatchIsRejected() {
         final CompoundTag tag = validSnapshot().toTag();
-        tag.putDouble("inverse_mass", 0.25);
+        tag.putDouble("inverse_mass", 0.5);
         final SubLevelReconstructionMassSnapshot.Decode decoded = SubLevelReconstructionMassSnapshot.decodeTag(tag);
         assert !decoded.accepted();
         assert decoded.failures().contains(SubLevelReconstructionMassSnapshot.Failure.INVERSE_MASS_MISMATCH);
