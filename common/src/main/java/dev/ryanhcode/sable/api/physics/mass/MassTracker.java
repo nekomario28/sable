@@ -28,6 +28,7 @@ import java.util.function.BiFunction;
  */
 public class MassTracker implements MassData {
     private static final AABB UNIT_BOUNDS = new AABB(0, 0, 0, 1, 1, 1);
+    private static final double RESTORE_CONSISTENCY_EPSILON = 1.0e-9;
 
     /**
      * The memoized internal center of masses for block-states
@@ -95,10 +96,11 @@ public class MassTracker implements MassData {
     }
 
     /**
-     * Restores a tracker from already-validated authoritative mass state without world reads.
+     * Restores a tracker from authoritative mass state without world reads.
      *
      * <p>The stored inverse values are copied exactly rather than recomputed so transactional
-     * reconstruction can preserve the source-side numerical state byte-for-byte.</p>
+     * reconstruction preserves the source-side numerical state. Restore also independently checks
+     * inverse consistency instead of trusting the caller's validation.</p>
      */
     @ApiStatus.Internal
     public static MassTracker restore(final MassData massData) {
@@ -109,15 +111,19 @@ public class MassTracker implements MassData {
                 massData.getInverseInertiaTensor(),
                 "massData.inverseInertiaTensor"
         );
-        if (!Double.isFinite(massData.getMass()) || massData.getMass() <= 0.0
-                || !Double.isFinite(massData.getInverseMass()) || massData.getInverseMass() <= 0.0
-                || !finite(center) || !finite(inertia) || !finite(inverseInertia)) {
+        final double mass = massData.getMass();
+        final double inverseMass = massData.getInverseMass();
+        if (!Double.isFinite(mass) || mass <= 0.0
+                || !Double.isFinite(inverseMass) || inverseMass <= 0.0
+                || !finite(center) || !finite(inertia) || !finite(inverseInertia)
+                || Math.abs(mass * inverseMass - 1.0) > RESTORE_CONSISTENCY_EPSILON
+                || !approximatelyIdentity(new Matrix3d(inertia).mul(inverseInertia))) {
             throw new IllegalArgumentException("Cannot restore invalid authoritative mass state");
         }
 
         final MassTracker tracker = new MassTracker();
-        tracker.mass = massData.getMass();
-        tracker.inverseMass = massData.getInverseMass();
+        tracker.mass = mass;
+        tracker.inverseMass = inverseMass;
         tracker.centerOfMass = new Vector3d(center);
         tracker.inertiaTensor = new Matrix3d(inertia);
         tracker.inverseInertiaTensor = new Matrix3d(inverseInertia);
@@ -282,6 +288,18 @@ public class MassTracker implements MassData {
         return Double.isFinite(value.m00()) && Double.isFinite(value.m01()) && Double.isFinite(value.m02())
                 && Double.isFinite(value.m10()) && Double.isFinite(value.m11()) && Double.isFinite(value.m12())
                 && Double.isFinite(value.m20()) && Double.isFinite(value.m21()) && Double.isFinite(value.m22());
+    }
+
+    private static boolean approximatelyIdentity(final Matrix3dc matrix) {
+        return Math.abs(matrix.m00() - 1.0) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m11() - 1.0) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m22() - 1.0) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m01()) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m02()) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m10()) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m12()) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m20()) <= RESTORE_CONSISTENCY_EPSILON
+                && Math.abs(matrix.m21()) <= RESTORE_CONSISTENCY_EPSILON;
     }
 
     @Override
