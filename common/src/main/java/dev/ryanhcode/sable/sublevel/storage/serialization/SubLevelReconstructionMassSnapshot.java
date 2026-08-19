@@ -26,6 +26,12 @@ import java.util.Set;
 public final class SubLevelReconstructionMassSnapshot implements MassData {
     public static final int FORMAT_VERSION = 1;
     private static final double CONSISTENCY_EPSILON = 1.0e-9;
+    private static final String[] VECTOR_COMPONENTS = {"x", "y", "z"};
+    private static final String[] MATRIX_COMPONENTS = {
+            "m00", "m01", "m02",
+            "m10", "m11", "m12",
+            "m20", "m21", "m22"
+    };
 
     private final double mass;
     private final double inverseMass;
@@ -53,10 +59,13 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
         INVALID_MASS,
         INVALID_INVERSE_MASS,
         MISSING_CENTER_OF_MASS,
+        INVALID_CENTER_OF_MASS_ENCODING,
         NON_FINITE_CENTER_OF_MASS,
         MISSING_INERTIA_TENSOR,
+        INVALID_INERTIA_TENSOR_ENCODING,
         NON_FINITE_INERTIA_TENSOR,
         MISSING_INVERSE_INERTIA_TENSOR,
+        INVALID_INVERSE_INERTIA_TENSOR_ENCODING,
         NON_FINITE_INVERSE_INERTIA_TENSOR,
         INVERSE_MASS_MISMATCH,
         INVERSE_INERTIA_MISMATCH
@@ -125,18 +134,31 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
 
         final double mass = tag.getDouble("mass");
         final double inverseMass = tag.getDouble("inverse_mass");
-        if (!Double.isFinite(mass) || mass <= 0.0) {
+        if (!tag.contains("mass", Tag.TAG_DOUBLE) || !Double.isFinite(mass) || mass <= 0.0) {
             failures.add(Failure.INVALID_MASS);
         }
-        if (!Double.isFinite(inverseMass) || inverseMass <= 0.0) {
+        if (!tag.contains("inverse_mass", Tag.TAG_DOUBLE)
+                || !Double.isFinite(inverseMass) || inverseMass <= 0.0) {
             failures.add(Failure.INVALID_INVERSE_MASS);
         }
 
-        final Vector3d center = readVector(tag, "center_of_mass", Failure.MISSING_CENTER_OF_MASS, failures);
+        final Vector3d center = readVector(
+                tag,
+                "center_of_mass",
+                Failure.MISSING_CENTER_OF_MASS,
+                Failure.INVALID_CENTER_OF_MASS_ENCODING,
+                failures
+        );
         if (center != null && !finite(center)) {
             failures.add(Failure.NON_FINITE_CENTER_OF_MASS);
         }
-        final Matrix3d inertia = readMatrix(tag, "inertia", Failure.MISSING_INERTIA_TENSOR, failures);
+        final Matrix3d inertia = readMatrix(
+                tag,
+                "inertia",
+                Failure.MISSING_INERTIA_TENSOR,
+                Failure.INVALID_INERTIA_TENSOR_ENCODING,
+                failures
+        );
         if (inertia != null && !finite(inertia)) {
             failures.add(Failure.NON_FINITE_INERTIA_TENSOR);
         }
@@ -144,13 +166,15 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
                 tag,
                 "inverse_inertia",
                 Failure.MISSING_INVERSE_INERTIA_TENSOR,
+                Failure.INVALID_INVERSE_INERTIA_TENSOR_ENCODING,
                 failures
         );
         if (inverseInertia != null && !finite(inverseInertia)) {
             failures.add(Failure.NON_FINITE_INVERSE_INERTIA_TENSOR);
         }
 
-        if (Double.isFinite(mass) && mass > 0.0
+        if (tag.contains("mass", Tag.TAG_DOUBLE) && tag.contains("inverse_mass", Tag.TAG_DOUBLE)
+                && Double.isFinite(mass) && mass > 0.0
                 && Double.isFinite(inverseMass) && inverseMass > 0.0
                 && !approximatelyOne(mass * inverseMass)) {
             failures.add(Failure.INVERSE_MASS_MISMATCH);
@@ -178,7 +202,9 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
     private EnumSet<Failure> validate() {
         final CompoundTag holder = new CompoundTag();
         holder.put("mass", this.toTag());
-        return EnumSet.copyOf(decode(holder, "mass").failures());
+        final EnumSet<Failure> result = EnumSet.noneOf(Failure.class);
+        result.addAll(decode(holder, "mass").failures());
+        return result;
     }
 
     private static Decode rejected(final Failure failure) {
@@ -197,6 +223,7 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
             final CompoundTag parent,
             final String key,
             final Failure missingFailure,
+            final Failure invalidEncodingFailure,
             final EnumSet<Failure> failures
     ) {
         if (!parent.contains(key, Tag.TAG_COMPOUND)) {
@@ -204,6 +231,10 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
             return null;
         }
         final CompoundTag tag = parent.getCompound(key);
+        if (!containsDoubles(tag, VECTOR_COMPONENTS)) {
+            failures.add(invalidEncodingFailure);
+            return null;
+        }
         return new Vector3d(tag.getDouble("x"), tag.getDouble("y"), tag.getDouble("z"));
     }
 
@@ -225,6 +256,7 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
             final CompoundTag parent,
             final String key,
             final Failure missingFailure,
+            final Failure invalidEncodingFailure,
             final EnumSet<Failure> failures
     ) {
         if (!parent.contains(key, Tag.TAG_COMPOUND)) {
@@ -232,11 +264,24 @@ public final class SubLevelReconstructionMassSnapshot implements MassData {
             return null;
         }
         final CompoundTag tag = parent.getCompound(key);
+        if (!containsDoubles(tag, MATRIX_COMPONENTS)) {
+            failures.add(invalidEncodingFailure);
+            return null;
+        }
         return new Matrix3d(
                 tag.getDouble("m00"), tag.getDouble("m01"), tag.getDouble("m02"),
                 tag.getDouble("m10"), tag.getDouble("m11"), tag.getDouble("m12"),
                 tag.getDouble("m20"), tag.getDouble("m21"), tag.getDouble("m22")
         );
+    }
+
+    private static boolean containsDoubles(final CompoundTag tag, final String[] keys) {
+        for (final String key : keys) {
+            if (!tag.contains(key, Tag.TAG_DOUBLE)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static boolean finite(final Vector3dc value) {
