@@ -60,7 +60,7 @@ dependencies {
     implementation("foundry.veil:veil-common-${project.minecraft_version}:${project.veil_version}") {
         exclude group: "maven.modrinth"
     }
-    compileOnly("foundry.imguimc:imguimc-common-${project.minecraft_version}:${project.imguimc_version}")
+    compileOnly("foundry.imguimc:imguimc-common-${project.minecraft_version}:${project.veil_version}")
 
     compileOnly("fuzs.forgeconfigapiport:forgeconfigapiport-fabric:${forgeconfigapiport_version}") {
         transitive = false
@@ -207,6 +207,13 @@ tasks.register('subLevelReconstructionMassSnapshotSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionMassPreflightSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionMassPreflightSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
@@ -226,5 +233,6 @@ tasks.named('check') {
             physicsSectionTicketReservationSelfTest,
             physicsSectionMaterializationSelfTest,
             subLevelSerializationChunkMetadataSelfTest,
-            subLevelReconstructionMassSnapshotSelfTest
+            subLevelReconstructionMassSnapshotSelfTest,
+            subLevelReconstructionMassPreflightSelfTest
 }
