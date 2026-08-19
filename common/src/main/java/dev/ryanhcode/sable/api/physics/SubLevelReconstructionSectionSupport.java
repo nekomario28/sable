@@ -2,8 +2,9 @@ package dev.ryanhcode.sable.api.physics;
 
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.chunk.LevelChunkSection;
+import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 
 /**
  * Operational contract for physics pipelines that can acquire one transaction-owned SubLevel
@@ -11,10 +12,21 @@ import org.jetbrains.annotations.ApiStatus;
  *
  * <p>The capability bit in {@link SubLevelReconstructionPhysicsSupport} is intentionally not enough:
  * reconstruction needs an actual owner-aware operation whose successful acquisition can be verified,
- * committed, or rolled back exactly.</p>
+ * committed, or rolled back exactly. The operation also receives an immutable detached block-state
+ * view so provider-specific neighborhood/collider encoding never needs to read the live target world.</p>
  */
 @ApiStatus.Experimental
 public interface SubLevelReconstructionSectionSupport {
+
+    /**
+     * Immutable reconstruction block-state source. Missing decoded positions must read as air.
+     * Implementations may query positions outside the section to derive neighborhood-dependent
+     * physics state, but must not retain or mutate the view.
+     */
+    @FunctionalInterface
+    interface ReconstructionBlockStateView {
+        @NotNull BlockState stateAt(int globalBlockX, int globalBlockY, int globalBlockZ);
+    }
 
     /**
      * Acquires one native physics section for the given provisional SubLevel owner.
@@ -24,14 +36,14 @@ public interface SubLevelReconstructionSectionSupport {
      * If this method throws, it must leave the native physics scene observationally unchanged.</p>
      *
      * @param owner provisional target SubLevel that exclusively owns the new section
-     * @param section decoded section contents to upload
      * @param sectionPos exact global section position
+     * @param blockStates immutable detached state view containing this section and its neighbors
      * @return an open transaction-owned section reservation
      */
     ReconstructionSectionReservation acquireReconstructionSection(
             ServerSubLevel owner,
-            LevelChunkSection section,
-            SectionPos sectionPos
+            SectionPos sectionPos,
+            ReconstructionBlockStateView blockStates
     );
 
     interface ReconstructionSectionReservation {
