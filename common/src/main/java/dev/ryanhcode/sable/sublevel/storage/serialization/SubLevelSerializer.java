@@ -57,6 +57,10 @@ public class SubLevelSerializer {
         tag.put("plot", plotTag);
         tag.put("pose", SableNBTUtils.writePose3d(serializedPose));
         tag.put("world_bounds", SableNBTUtils.writeBoundingBox(subLevel.boundingBox()));
+        tag.put(
+                "reconstruction_self_mass",
+                SubLevelReconstructionMassSnapshot.capture(subLevel.getSelfMassTracker()).toTag()
+        );
 
         final RigidBodyHandle handle = RigidBodyHandle.of(subLevel);
         if (handle != null) {
