@@ -48,6 +48,19 @@ jobs:
         run: |
           git config --global user.name 'github-actions[bot]'
           git config --global user.email 'github-actions[bot]@users.noreply.github.com'
-          git add .
-          git commit -m "Automated build rust natives" || echo "No changes to commit"
-          git push
+
+          git add sable_rapier/src/main/resources/natives/
+          if git diff --cached --quiet; then
+            echo "No native changes to commit"
+            exit 0
+          fi
+          git commit -m "Automated build rust natives"
+
+          git fetch origin main
+          if ! git diff --quiet "$GITHUB_SHA"..origin/main -- sable_rapier/src/main/rust/ .github/workflows/build-rust.yml; then
+            echo "::error::Rust sources or the native build workflow changed while this run was building; refusing to publish stale natives."
+            exit 1
+          fi
+
+          git rebase origin/main
+          git push origin HEAD:main
