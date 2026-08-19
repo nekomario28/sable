@@ -1,5 +1,6 @@
 package dev.ryanhcode.sable.physics.impl.rapier;
 
+import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport;
 import dev.ryanhcode.sable.physics.impl.rapier.collider.RapierVoxelColliderBakery;
@@ -16,14 +17,17 @@ import java.util.function.Supplier;
 /**
  * Rapier pipeline entry point for operational reconstruction primitives.
  *
- * <p>Runtime-ID reservations and owner-aware section reservations are exposed independently. This
- * class intentionally does not yet opt into complete reconstruction physics capabilities: the
- * provisional native body lifecycle still has to be implemented and proven.</p>
+ * <p>Runtime-ID reservations and owner-aware exact section rollback are implemented and verified.
+ * Provisional target-body lifecycle support is intentionally still unavailable, so complete
+ * reconstruction remains fail-closed at the body gate.</p>
  */
 @ApiStatus.Internal
 final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
-        implements SubLevelReconstructionRuntimeIdSupport, SubLevelReconstructionSectionSupport {
+        implements SubLevelReconstructionPhysicsSupport,
+        SubLevelReconstructionRuntimeIdSupport,
+        SubLevelReconstructionSectionSupport {
     private static final RapierRuntimeIdAllocator RUNTIME_IDS = new RapierRuntimeIdAllocator();
+    private static final Capabilities RECONSTRUCTION_CAPABILITIES = new Capabilities(true, false);
 
     private final ServerLevel reconstructionLevel;
     private final RapierVoxelColliderBakery reconstructionColliderBakery;
@@ -33,6 +37,11 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         super(level);
         this.reconstructionLevel = Objects.requireNonNull(level, "level");
         this.reconstructionColliderBakery = new RapierVoxelColliderBakery(level);
+    }
+
+    @Override
+    public Capabilities reconstructionCapabilities() {
+        return RECONSTRUCTION_CAPABILITIES;
     }
 
     @Override
