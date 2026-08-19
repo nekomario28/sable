@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.neoforge.gametest;
 
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
+import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
@@ -49,6 +50,15 @@ public final class ReconstructionSectionTest {
         final PhysicsPipeline pipeline = physicsSystem.getPipeline();
         if (!(pipeline instanceof final SubLevelReconstructionSectionSupport support)) {
             helper.fail("Physics pipeline does not expose reconstruction section support");
+            return;
+        }
+        if (!(pipeline instanceof final SubLevelReconstructionPhysicsSupport physicsSupport)) {
+            helper.fail("Physics pipeline does not expose reconstruction capability evidence");
+            return;
+        }
+        final SubLevelReconstructionPhysicsSupport.Capabilities capabilities = physicsSupport.reconstructionCapabilities();
+        if (!capabilities.exactSectionRollback() || capabilities.provisionalBodyLifecycle()) {
+            helper.fail("Rapier reconstruction capability boundary is not section-only");
             return;
         }
 
