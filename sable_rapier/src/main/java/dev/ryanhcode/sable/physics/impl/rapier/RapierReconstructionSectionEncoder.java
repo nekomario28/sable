@@ -3,12 +3,13 @@ package dev.ryanhcode.sable.physics.impl.rapier;
 import dev.ryanhcode.sable.api.block.BlockWithSubLevelCollisionCallback;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport.ReconstructionBlockStateView;
 import dev.ryanhcode.sable.physics.chunk.VoxelNeighborhoodState;
+import dev.ryanhcode.sable.physics.impl.rapier.collider.PhysicsColliderBlockGetter;
 import dev.ryanhcode.sable.physics.impl.rapier.collider.RapierVoxelColliderBakery;
 import dev.ryanhcode.sable.physics.impl.rapier.collider.RapierVoxelColliderData;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.SectionPos;
-import net.minecraft.world.level.BlockGetter;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunkSection;
 import org.jetbrains.annotations.ApiStatus;
@@ -36,7 +37,7 @@ final class RapierReconstructionSectionEncoder {
         Objects.requireNonNull(colliderBakery, "colliderBakery");
 
         final int[] encoded = new int[LevelChunkSection.SECTION_SIZE];
-        final BlockGetter shapeContext = colliderBakery.getLevel();
+        final PhysicsColliderBlockGetter shapeContext = colliderBakery.getLevel();
         final BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
 
         for (int bx = 0; bx < 16; bx++) {
@@ -67,7 +68,7 @@ final class RapierReconstructionSectionEncoder {
     }
 
     private static VoxelNeighborhoodState neighborhoodState(
-            final BlockGetter shapeContext,
+            final PhysicsColliderBlockGetter shapeContext,
             final ReconstructionBlockStateView blockStates,
             final BlockPos position,
             final BlockState blockState
@@ -77,11 +78,11 @@ final class RapierReconstructionSectionEncoder {
             return VoxelNeighborhoodState.CORNER;
         }
 
-        if (!VoxelNeighborhoodState.isSolid(shapeContext, position, blockState)) {
+        if (!isSolid(shapeContext, position, blockState)) {
             return VoxelNeighborhoodState.EMPTY;
         }
 
-        if (!VoxelNeighborhoodState.isFullBlock(shapeContext, position, blockState)) {
+        if (!isFullBlock(shapeContext, position, blockState)) {
             return VoxelNeighborhoodState.CORNER;
         }
 
@@ -90,14 +91,14 @@ final class RapierReconstructionSectionEncoder {
         int bothSidesCount = 0;
 
         for (final Direction.Axis axis : Direction.Axis.VALUES) {
-            final Direction negative = Direction.get(Direction.AxisDirection.NEGATIVE, axis);
-            final Direction positive = Direction.get(Direction.AxisDirection.POSITIVE, axis);
-            final BlockState negativeState = stateAt(blockStates, position, negative);
-            final BlockState positiveState = stateAt(blockStates, position, positive);
-            final boolean negativeSolid = VoxelNeighborhoodState.isSolid(shapeContext, position, negativeState)
-                    && VoxelNeighborhoodState.isFullBlock(shapeContext, position, negativeState);
-            final boolean positiveSolid = VoxelNeighborhoodState.isSolid(shapeContext, position, positiveState)
-                    && VoxelNeighborhoodState.isFullBlock(shapeContext, position, positiveState);
+            final BlockPos negativePos = position.relative(Direction.get(Direction.AxisDirection.NEGATIVE, axis));
+            final BlockPos positivePos = position.relative(Direction.get(Direction.AxisDirection.POSITIVE, axis));
+            final BlockState negativeState = stateAt(blockStates, negativePos);
+            final BlockState positiveState = stateAt(blockStates, positivePos);
+            final boolean negativeSolid = isSolid(shapeContext, negativePos, negativeState)
+                    && isFullBlock(shapeContext, negativePos, negativeState);
+            final boolean positiveSolid = isSolid(shapeContext, positivePos, positiveState)
+                    && isFullBlock(shapeContext, positivePos, positiveState);
 
             if (!negativeSolid || !positiveSolid) {
                 allSolid = false;
@@ -120,17 +121,38 @@ final class RapierReconstructionSectionEncoder {
         return VoxelNeighborhoodState.FACE;
     }
 
+    private static boolean isSolid(
+            final PhysicsColliderBlockGetter shapeContext,
+            final BlockPos position,
+            final BlockState blockState
+    ) {
+        shapeContext.setup(blockState);
+        try {
+            return VoxelNeighborhoodState.isSolid(shapeContext, position, blockState);
+        } finally {
+            shapeContext.setup(Blocks.AIR.defaultBlockState());
+        }
+    }
+
+    private static boolean isFullBlock(
+            final PhysicsColliderBlockGetter shapeContext,
+            final BlockPos position,
+            final BlockState blockState
+    ) {
+        shapeContext.setup(blockState);
+        try {
+            return VoxelNeighborhoodState.isFullBlock(shapeContext, position, blockState);
+        } finally {
+            shapeContext.setup(Blocks.AIR.defaultBlockState());
+        }
+    }
+
     private static BlockState stateAt(
             final ReconstructionBlockStateView blockStates,
-            final BlockPos origin,
-            final Direction direction
+            final BlockPos position
     ) {
         return Objects.requireNonNull(
-                blockStates.stateAt(
-                        origin.getX() + direction.getStepX(),
-                        origin.getY() + direction.getStepY(),
-                        origin.getZ() + direction.getStepZ()
-                ),
+                blockStates.stateAt(position.getX(), position.getY(), position.getZ()),
                 "Reconstruction block-state view returned null"
         );
     }
