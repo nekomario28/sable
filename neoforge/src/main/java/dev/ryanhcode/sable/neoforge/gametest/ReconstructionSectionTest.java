@@ -93,6 +93,11 @@ public final class ReconstructionSectionTest {
                 occupiedSection.y(),
                 occupiedSection.z()
         );
+        final BlockPos detachedSolid = new BlockPos(
+                targetSection.minBlockX() + 1,
+                targetSection.minBlockY() + 1,
+                targetSection.minBlockZ() + 1
+        );
         final BoundingBox3i expandedBounds = new BoundingBox3i(
                 Math.min(originalBounds.minX(), targetSection.minBlockX()),
                 Math.min(originalBounds.minY(), targetSection.minBlockY()),
@@ -110,7 +115,11 @@ public final class ReconstructionSectionTest {
             reservation = support.acquireReconstructionSection(
                     subLevel,
                     targetSection,
-                    (x, y, z) -> Blocks.AIR.defaultBlockState()
+                    (x, y, z) -> x == detachedSolid.getX()
+                            && y == detachedSolid.getY()
+                            && z == detachedSolid.getZ()
+                            ? Blocks.DIAMOND_BLOCK.defaultBlockState()
+                            : Blocks.AIR.defaultBlockState()
             );
             if (!reservation.open()
                     || reservation.ownerRuntimeId() != subLevel.getRuntimeId()
