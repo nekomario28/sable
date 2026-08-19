@@ -37,7 +37,7 @@ final class RapierReconstructionSectionEncoder {
         Objects.requireNonNull(colliderBakery, "colliderBakery");
 
         final int[] encoded = new int[LevelChunkSection.SECTION_SIZE];
-        final PhysicsColliderBlockGetter shapeContext = colliderBakery.getLevel();
+        final PhysicsColliderBlockGetter shapeContext = new PhysicsColliderBlockGetter(colliderBakery.getLevel());
         final BlockPos.MutableBlockPos position = new BlockPos.MutableBlockPos();
 
         for (int bx = 0; bx < 16; bx++) {
