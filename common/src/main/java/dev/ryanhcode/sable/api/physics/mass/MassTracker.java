@@ -13,12 +13,14 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3d;
 import org.joml.Matrix3dc;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
 
+import java.util.Objects;
 import java.util.function.BiFunction;
 
 /**
@@ -90,6 +92,36 @@ public class MassTracker implements MassData {
         this.centerOfMass = null;
         this.inertiaTensor = new Matrix3d().zero();
         this.inverseInertiaTensor = new Matrix3d().zero();
+    }
+
+    /**
+     * Restores a tracker from already-validated authoritative mass state without world reads.
+     *
+     * <p>The stored inverse values are copied exactly rather than recomputed so transactional
+     * reconstruction can preserve the source-side numerical state byte-for-byte.</p>
+     */
+    @ApiStatus.Internal
+    public static MassTracker restore(final MassData massData) {
+        Objects.requireNonNull(massData, "massData");
+        final Vector3dc center = Objects.requireNonNull(massData.getCenterOfMass(), "massData.centerOfMass");
+        final Matrix3dc inertia = Objects.requireNonNull(massData.getInertiaTensor(), "massData.inertiaTensor");
+        final Matrix3dc inverseInertia = Objects.requireNonNull(
+                massData.getInverseInertiaTensor(),
+                "massData.inverseInertiaTensor"
+        );
+        if (!Double.isFinite(massData.getMass()) || massData.getMass() <= 0.0
+                || !Double.isFinite(massData.getInverseMass()) || massData.getInverseMass() <= 0.0
+                || !finite(center) || !finite(inertia) || !finite(inverseInertia)) {
+            throw new IllegalArgumentException("Cannot restore invalid authoritative mass state");
+        }
+
+        final MassTracker tracker = new MassTracker();
+        tracker.mass = massData.getMass();
+        tracker.inverseMass = massData.getInverseMass();
+        tracker.centerOfMass = new Vector3d(center);
+        tracker.inertiaTensor = new Matrix3d(inertia);
+        tracker.inverseInertiaTensor = new Matrix3d(inverseInertia);
+        return tracker;
     }
 
     /**
@@ -242,6 +274,15 @@ public class MassTracker implements MassData {
         this.centerOfMass.set(newCenterOfMass);
     }
 
+    private static boolean finite(final Vector3dc value) {
+        return Double.isFinite(value.x()) && Double.isFinite(value.y()) && Double.isFinite(value.z());
+    }
+
+    private static boolean finite(final Matrix3dc value) {
+        return Double.isFinite(value.m00()) && Double.isFinite(value.m01()) && Double.isFinite(value.m02())
+                && Double.isFinite(value.m10()) && Double.isFinite(value.m11()) && Double.isFinite(value.m12())
+                && Double.isFinite(value.m20()) && Double.isFinite(value.m21()) && Double.isFinite(value.m22());
+    }
 
     @Override
     public double getInverseMass() {
