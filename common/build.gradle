@@ -200,6 +200,13 @@ tasks.register('subLevelSerializationChunkMetadataSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionMassSnapshotSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelReconstructionMassSnapshotSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
@@ -218,5 +225,6 @@ tasks.named('check') {
             subLevelReconstructionDecodedBlockStateViewSelfTest,
             physicsSectionTicketReservationSelfTest,
             physicsSectionMaterializationSelfTest,
-            subLevelSerializationChunkMetadataSelfTest
+            subLevelSerializationChunkMetadataSelfTest,
+            subLevelReconstructionMassSnapshotSelfTest
 }
