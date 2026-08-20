@@ -237,7 +237,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
-     * @return the last stopped status sent out to players (if the sub-level is standing still)
+     * @return the last stopped status sent out to players
      */
     @ApiStatus.Internal
     public boolean getLastNetworkedStopped() {
@@ -390,7 +390,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
      * Gets or creates a queued force group for the given force group.
      *
      * @param forceGroup the force group to get or create a queued force group for
-     * @return a new {@link QueuedForceGroup} for the given force group
+     * @return the queued force group
      */
     public QueuedForceGroup getOrCreateQueuedForceGroup(final ForceGroup forceGroup) {
         if (this.queuedForceGroups == null) {
@@ -563,7 +563,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
-     * Sets the user-data compound tag, which is saved and serialized with the sub-level
+     * Sets the user-data compound tag, which is saved and serialized with this sub-level
      *
      * @param userDataTag the user-data compound tag
      */
