@@ -2,17 +2,23 @@ package dev.ryanhcode.sable.neoforge.gametest;
 
 import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
+import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
+import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelReconstructionMassSnapshot;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
+import org.joml.Matrix3d;
+import org.joml.Matrix3dc;
 import org.joml.Vector2i;
+import org.joml.Vector3d;
+import org.joml.Vector3dc;
 
 import java.util.UUID;
 
@@ -69,10 +75,28 @@ public final class ReconstructionRuntimeIdTest {
                 helper.fail("Detached ServerSubLevel did not retain the restored UUID");
                 return;
             }
+
+            final SubLevelReconstructionMassSnapshot mass = authoritativeMass();
+            detached.restoreDetachedMassData(mass);
+            if (!sameMass(detached.getMassTracker(), mass)) {
+                helper.fail("Detached ServerSubLevel did not retain authoritative mass exactly");
+                return;
+            }
+            boolean secondMassRestoreRejected = false;
+            try {
+                detached.restoreDetachedMassData(mass);
+            } catch (final IllegalStateException expected) {
+                secondMassRestoreRejected = true;
+            }
+            if (!secondMassRestoreRejected) {
+                helper.fail("Detached ServerSubLevel accepted a second mass initialization");
+                return;
+            }
+
             if (container.getLoadedCount() != loadedBefore ||
                     container.getSubLevel(localPlotX, localPlotZ) != null ||
                     container.getSubLevel(detachedUuid) != null) {
-                helper.fail("Detached ServerSubLevel construction published container state");
+                helper.fail("Detached ServerSubLevel construction or mass restore published container state");
                 return;
             }
 
@@ -117,6 +141,52 @@ public final class ReconstructionRuntimeIdTest {
         }
 
         helper.succeed();
+    }
+
+    private static SubLevelReconstructionMassSnapshot authoritativeMass() {
+        final Matrix3d inertia = new Matrix3d(
+                2.0, 0.0, 0.0,
+                0.0, 3.0, 0.0,
+                0.0, 0.0, 4.0
+        );
+        final Matrix3d inverse = new Matrix3d(inertia).invert();
+        return SubLevelReconstructionMassSnapshot.capture(new MassData() {
+            @Override
+            public double getMass() {
+                return 4.0;
+            }
+
+            @Override
+            public double getInverseMass() {
+                return 0.25;
+            }
+
+            @Override
+            public Matrix3dc getInertiaTensor() {
+                return inertia;
+            }
+
+            @Override
+            public Matrix3dc getInverseInertiaTensor() {
+                return inverse;
+            }
+
+            @Override
+            public Vector3dc getCenterOfMass() {
+                return new Vector3d(0.5, 0.5, 0.5);
+            }
+        });
+    }
+
+    private static boolean sameMass(final MassData actual, final MassData expected) {
+        return actual != null
+                && actual.getMass() == expected.getMass()
+                && actual.getInverseMass() == expected.getInverseMass()
+                && actual.getCenterOfMass() != null
+                && expected.getCenterOfMass() != null
+                && actual.getCenterOfMass().equals(expected.getCenterOfMass(), 0.0)
+                && actual.getInertiaTensor().equals(expected.getInertiaTensor(), 0.0)
+                && actual.getInverseInertiaTensor().equals(expected.getInverseInertiaTensor(), 0.0);
     }
 
     private static int[] findEmptySlot(final ServerSubLevelContainer container) {
