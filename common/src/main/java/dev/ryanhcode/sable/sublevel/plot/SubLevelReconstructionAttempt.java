@@ -1,6 +1,7 @@
 package dev.ryanhcode.sable.sublevel.plot;
 
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
+import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelReconstructionMassSnapshot;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.ApiStatus;
 
@@ -13,19 +14,19 @@ import java.util.Set;
  * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
- * input into an immutable plan, validates deterministic payload codecs/metadata and target registry
- * availability, freezes a canonical staged payload, decodes deterministic chunk state without live
- * chunk allocation, verifies target ChunkMap publication coordinates and entity sections are clean,
- * requires platform callbacks to be staging/defer safe, verifies current target physics
- * capabilities, and then captures a fresh target-container rollback baseline. A transaction token
- * is created only after every gate succeeds.</p>
+ * input into an immutable plan, validates deterministic payload codecs/metadata and authoritative
+ * self-mass, verifies target registry availability, freezes a canonical staged payload, decodes
+ * deterministic chunk state without live chunk allocation, verifies target ChunkMap publication
+ * coordinates and entity sections are clean, requires platform callbacks to be staging/defer safe,
+ * verifies current target physics capabilities, and then captures a fresh target-container rollback
+ * baseline. A transaction token is created only after every gate succeeds.</p>
  *
  * <p>This class still has no materialization implementation. In particular it never calls legacy
  * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
-    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, RegistryRejected, StagingRejected, DecodeRejected, PublicationRejected, EntityRejected, PlatformRejected, RuntimeRejected, BaselineRejected {
+    public sealed interface Preparation permits Prepared, PreflightRejected, PayloadRejected, MassRejected, RegistryRejected, StagingRejected, DecodeRejected, PublicationRejected, EntityRejected, PlatformRejected, RuntimeRejected, BaselineRejected {
         boolean accepted();
     }
 
@@ -63,6 +64,22 @@ public final class SubLevelReconstructionAttempt {
             failures = immutablePayloadFailures(failures);
             if (failures.isEmpty()) {
                 throw new IllegalArgumentException("Payload rejection requires failure evidence");
+            }
+        }
+
+        @Override
+        public boolean accepted() {
+            return false;
+        }
+    }
+
+    public record MassRejected(Set<SubLevelReconstructionMassSnapshot.Failure> failures)
+            implements Preparation {
+        public MassRejected {
+            Objects.requireNonNull(failures, "failures");
+            failures = immutableMassFailures(failures);
+            if (failures.isEmpty()) {
+                throw new IllegalArgumentException("Mass rejection requires failure evidence");
             }
         }
 
@@ -214,6 +231,7 @@ public final class SubLevelReconstructionAttempt {
 
     private final ServerLevel targetLevel;
     private final SubLevelReconstructionPlan plan;
+    private final SubLevelReconstructionMassSnapshot massSnapshot;
     private final SubLevelReconstructionStagedPayload stagedPayload;
     private final SubLevelReconstructionDecodedPayload decodedPayload;
     private final SubLevelReconstructionContainerBaseline baseline;
@@ -222,12 +240,14 @@ public final class SubLevelReconstructionAttempt {
     private SubLevelReconstructionAttempt(
             final ServerLevel targetLevel,
             final SubLevelReconstructionPlan plan,
+            final SubLevelReconstructionMassSnapshot massSnapshot,
             final SubLevelReconstructionStagedPayload stagedPayload,
             final SubLevelReconstructionDecodedPayload decodedPayload,
             final SubLevelReconstructionContainerBaseline baseline
     ) {
         this.targetLevel = Objects.requireNonNull(targetLevel, "targetLevel");
         this.plan = Objects.requireNonNull(plan, "plan");
+        this.massSnapshot = Objects.requireNonNull(massSnapshot, "massSnapshot");
         this.stagedPayload = Objects.requireNonNull(stagedPayload, "stagedPayload");
         this.decodedPayload = Objects.requireNonNull(decodedPayload, "decodedPayload");
         this.baseline = Objects.requireNonNull(baseline, "baseline");
@@ -253,6 +273,13 @@ public final class SubLevelReconstructionAttempt {
         if (!payload.accepted()) {
             return new PayloadRejected(payload.failures());
         }
+
+        final SubLevelReconstructionMassPreflight.Result mass =
+                SubLevelReconstructionMassPreflight.validate(plan);
+        if (!mass.accepted()) {
+            return new MassRejected(mass.failures());
+        }
+        final SubLevelReconstructionMassSnapshot massSnapshot = mass.snapshot().orElseThrow();
 
         final SubLevelReconstructionRegistryPreflight.Result registry =
                 SubLevelReconstructionRegistryPreflight.validate(targetLevel, plan);
@@ -307,6 +334,7 @@ public final class SubLevelReconstructionAttempt {
         return new Prepared(new SubLevelReconstructionAttempt(
                 targetLevel,
                 plan,
+                massSnapshot,
                 stagedPayload,
                 decodedPayload,
                 baselineCapture.baseline().orElseThrow()
@@ -324,6 +352,11 @@ public final class SubLevelReconstructionAttempt {
     @ApiStatus.Internal
     ServerLevel targetLevel() {
         return this.targetLevel;
+    }
+
+    @ApiStatus.Internal
+    SubLevelReconstructionMassSnapshot massSnapshot() {
+        return this.massSnapshot;
     }
 
     @ApiStatus.Internal
@@ -360,6 +393,15 @@ public final class SubLevelReconstructionAttempt {
     ) {
         final EnumSet<SubLevelReconstructionPayloadPreflight.Failure> copy =
                 EnumSet.noneOf(SubLevelReconstructionPayloadPreflight.Failure.class);
+        copy.addAll(failures);
+        return Collections.unmodifiableSet(copy);
+    }
+
+    private static Set<SubLevelReconstructionMassSnapshot.Failure> immutableMassFailures(
+            final Set<SubLevelReconstructionMassSnapshot.Failure> failures
+    ) {
+        final EnumSet<SubLevelReconstructionMassSnapshot.Failure> copy =
+                EnumSet.noneOf(SubLevelReconstructionMassSnapshot.Failure.class);
         copy.addAll(failures);
         return Collections.unmodifiableSet(copy);
     }
