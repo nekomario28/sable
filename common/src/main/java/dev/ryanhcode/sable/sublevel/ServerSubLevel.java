@@ -237,7 +237,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
-     * @return the last stopped status sent out to players
+     * @return the last stopped status sent out to players (if the sub-level is standing still)
      */
     @ApiStatus.Internal
     public boolean getLastNetworkedStopped() {
@@ -390,7 +390,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
      * Gets or creates a queued force group for the given force group.
      *
      * @param forceGroup the force group to get or create a queued force group for
-     * @return the queued force group
+     * @return a new {@link QueuedForceGroup} for the given force group
      */
     public QueuedForceGroup getOrCreateQueuedForceGroup(final ForceGroup forceGroup) {
         if (this.queuedForceGroups == null) {
@@ -497,6 +497,19 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
+     * Restores authoritative self-mass for an unpublished reconstruction target without world reads
+     * or physics publication.
+     */
+    @ApiStatus.Internal
+    public void restoreDetachedMassData(final MassData massData) {
+        if (this.massTracker != null) {
+            throw new IllegalStateException("Mass tracker is already initialized");
+        }
+        final MassTracker internalTracker = MassTracker.restore(massData);
+        this.massTracker = MergedMassTracker.restoreDetached(this, internalTracker);
+    }
+
+    /**
      * @return the mass tracker for just the sub-level, not including merged masses
      */
     public MassTracker getSelfMassTracker() {
@@ -550,7 +563,7 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
-     * Sets the user-data compound tag, which is saved and serialized with this sub-level
+     * Sets the user-data compound tag, which is saved and serialized with the sub-level
      *
      * @param userDataTag the user-data compound tag
      */
