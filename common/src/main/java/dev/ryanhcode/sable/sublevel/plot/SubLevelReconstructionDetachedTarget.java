@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.sublevel.plot;
 
 import dev.ryanhcode.sable.api.physics.PhysicsPipeline;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
+import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
@@ -17,9 +18,9 @@ import java.util.Objects;
  *
  * <p>The ordinary {@link ServerSubLevel} constructor is used inside the target physics pipeline's
  * reserved-runtime-ID adoption scope. The serialized local target slot is converted back to the
- * global plot coordinates expected by the constructor. The target UUID is restored immediately,
- * then the authoritative container baseline is re-verified to prove construction itself published
- * nothing.</p>
+ * global plot coordinates expected by the constructor. The target UUID and validated authoritative
+ * self-mass are restored immediately, then the authoritative container baseline is re-verified to
+ * prove detached initialization itself published nothing.</p>
  *
  * <p>Acquisition begins the reconstruction transaction and leaves it MATERIALIZING. The runtime-ID
  * reservation is registered as both a rollback action and the transaction's single final commit
@@ -39,7 +40,10 @@ public final class SubLevelReconstructionDetachedTarget {
         TARGET_CONSTRUCTION_FAILED,
         RUNTIME_ID_MISMATCH,
         UUID_MISMATCH,
-        CONSTRUCTION_PUBLISHED_STATE
+        MASS_RESTORE_FAILED,
+        MASS_RESTORE_MISMATCH,
+        CONSTRUCTION_PUBLISHED_STATE,
+        MASS_INSTALL_PUBLISHED_STATE
     }
 
     public sealed interface Acquisition permits Acquired, Rejected, RolledBack {
@@ -226,6 +230,28 @@ public final class SubLevelReconstructionDetachedTarget {
                 );
             }
 
+            try {
+                detached.restoreDetachedMassData(attempt.massSnapshot());
+            } catch (final RuntimeException | AssertionError massFailure) {
+                throw new AcquisitionFailure(
+                        Failure.MASS_RESTORE_FAILED,
+                        "Detached target authoritative mass restoration failed",
+                        massFailure
+                );
+            }
+            if (!massMatches(detached.getMassTracker(), attempt.massSnapshot())) {
+                throw new AcquisitionFailure(
+                        Failure.MASS_RESTORE_MISMATCH,
+                        "Detached target mass does not exactly match the validated snapshot"
+                );
+            }
+            if (!attempt.baseline().verify(targetLevel).exact()) {
+                throw new AcquisitionFailure(
+                        Failure.MASS_INSTALL_PUBLISHED_STATE,
+                        "Detached target mass restoration changed authoritative container state"
+                );
+            }
+
             return new Acquired(new SubLevelReconstructionDetachedTarget(
                     attempt,
                     detached,
@@ -241,6 +267,19 @@ public final class SubLevelReconstructionDetachedTarget {
             );
             return new RolledBack(wrapped.failure, wrapped, transaction.rollback(wrapped));
         }
+    }
+
+    private static boolean massMatches(final MassData actual, final MassData expected) {
+        if (actual == null || expected == null
+                || actual.getMass() != expected.getMass()
+                || actual.getInverseMass() != expected.getInverseMass()) {
+            return false;
+        }
+        return actual.getCenterOfMass() != null
+                && expected.getCenterOfMass() != null
+                && actual.getCenterOfMass().equals(expected.getCenterOfMass(), 0.0)
+                && actual.getInertiaTensor().equals(expected.getInertiaTensor(), 0.0)
+                && actual.getInverseInertiaTensor().equals(expected.getInverseInertiaTensor(), 0.0);
     }
 
     @ApiStatus.Internal
