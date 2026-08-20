@@ -214,6 +214,13 @@ tasks.register('massTrackerRestoreSelfTest', JavaExec) {
     enableAssertions = true
 }
 
+tasks.register('subLevelReconstructionMassPreflightSelfTest', JavaExec) {
+    dependsOn testClasses
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'dev.ryanhcode.sable.sublevel.plot.SubLevelReconstructionMassPreflightSelfTest'
+    enableAssertions = true
+}
+
 tasks.named('check') {
     dependsOn serverSubLevelLocationSnapshotSelfTest,
             subLevelReconstructionPreflightSelfTest,
@@ -234,5 +241,6 @@ tasks.named('check') {
             physicsSectionMaterializationSelfTest,
             subLevelSerializationChunkMetadataSelfTest,
             subLevelReconstructionMassSnapshotSelfTest,
-            massTrackerRestoreSelfTest
+            massTrackerRestoreSelfTest,
+            subLevelReconstructionMassPreflightSelfTest
 }
