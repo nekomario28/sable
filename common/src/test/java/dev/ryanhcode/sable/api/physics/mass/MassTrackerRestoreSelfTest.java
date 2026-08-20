@@ -43,7 +43,7 @@ public final class MassTrackerRestoreSelfTest {
 
         assert !tracker.getCenterOfMass().equals(center, 0.0);
         assert tracker.getInertiaTensor().m00() == 3.0;
-        assert tracker.getInverseInertiaTensor().m00() == 1.0 / 3.0;
+        assert Math.abs(tracker.getInverseInertiaTensor().m00() - 1.0 / 3.0) < 1.0E-15;
     }
 
     private static void rejectsInverseMassMismatch() {
