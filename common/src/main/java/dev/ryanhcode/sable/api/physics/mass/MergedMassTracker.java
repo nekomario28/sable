@@ -8,6 +8,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import dev.ryanhcode.sable.util.SableMathUtils;
 import net.minecraft.server.level.ServerLevel;
+import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.*;
@@ -49,6 +50,35 @@ public class MergedMassTracker implements MassData {
     public MergedMassTracker(@NotNull final ServerSubLevel subLevel, final MassTracker selfTracker) {
         this.subLevel = subLevel;
         this.selfTracker = selfTracker;
+    }
+
+    /**
+     * Initializes the merged tracker from authoritative self mass without publishing to physics.
+     *
+     * <p>This is only valid before contraptions/dependencies are attached. Previous-value state is
+     * initialized to the restored values so a later ordinary update does not synthesize a false
+     * mass change solely because reconstruction started from detached state.</p>
+     */
+    @ApiStatus.Internal
+    public static MergedMassTracker restoreDetached(
+            @NotNull final ServerSubLevel subLevel,
+            @NotNull final MassTracker selfTracker
+    ) {
+        Objects.requireNonNull(subLevel, "subLevel");
+        Objects.requireNonNull(selfTracker, "selfTracker");
+        final Vector3dc selfCenter = Objects.requireNonNull(
+                selfTracker.getCenterOfMass(),
+                "selfTracker.centerOfMass"
+        );
+
+        final MergedMassTracker tracker = new MergedMassTracker(subLevel, selfTracker);
+        tracker.mass = selfTracker.getMass();
+        tracker.inverseMass = selfTracker.getInverseMass();
+        tracker.centerOfMass = new Vector3d(selfCenter);
+        tracker.inertiaTensor.set(selfTracker.getInertiaTensor());
+        tracker.inverseInertiaTensor.set(selfTracker.getInverseInertiaTensor());
+        tracker.setPreviousValues();
+        return tracker;
     }
 
     /**
