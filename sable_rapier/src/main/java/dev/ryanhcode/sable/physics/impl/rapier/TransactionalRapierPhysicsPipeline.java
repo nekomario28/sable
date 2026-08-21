@@ -253,6 +253,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             throw new IllegalStateException("Java reconstruction body ownership already exists for runtime ID " + runtimeId);
         }
         boolean acquired = false;
+        boolean releaseJavaOwnershipOnFailure = true;
         try {
             acquired = RapierReconstructionNative.acquireReconstructionSubLevelBody(
                     this.getSceneHandle(),
@@ -265,7 +266,15 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
                     plotSections
             );
             if (!acquired) {
-                throw new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
+                final IllegalStateException failure =
+                        new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
+                if (!RapierReconstructionNative.clearReconstructionBodyOwnershipForScene(this.getSceneHandle())) {
+                    releaseJavaOwnershipOnFailure = false;
+                    failure.addSuppressed(new IllegalStateException(
+                            "Rapier retained reconstruction body ownership after failed acquisition cleanup"
+                    ));
+                }
+                throw failure;
             }
             try {
                 reservation.captureCommittedNativePose(centerOfMass);
@@ -279,7 +288,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             }
             return reservation;
         } finally {
-            if (!acquired) {
+            if (!acquired && releaseJavaOwnershipOnFailure) {
                 this.reconstructionBodyRuntimeIds.remove(runtimeIdKey);
             }
         }
@@ -388,6 +397,12 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
         @Override
         public void rollback() {
+            this.owner.requireReconstructionServerThread();
+            if (this.owner.reconstructionBodyRuntimeIds.contains(this.delegate.id())) {
+                throw new IllegalStateException(
+                        "Cannot release reconstruction runtime ID while its body ownership remains open"
+                );
+            }
             this.delegate.rollback();
         }
     }
