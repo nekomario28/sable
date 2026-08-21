@@ -1,6 +1,7 @@
 package dev.ryanhcode.sable.fabric.platform;
 
 import dev.ryanhcode.sable.platform.SableChunkEventPlatform;
+import dev.ryanhcode.sable.platform.SubLevelReconstructionChunkEventSupport;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerChunkEvents;
 import net.minecraft.client.multiplayer.ClientLevel;
@@ -9,7 +10,12 @@ import net.minecraft.world.level.chunk.LevelChunk;
 import org.jetbrains.annotations.ApiStatus;
 
 @ApiStatus.Internal
-public class SableChunkEventPlatformImpl implements SableChunkEventPlatform {
+public class SableChunkEventPlatformImpl implements SableChunkEventPlatform, SubLevelReconstructionChunkEventSupport {
+
+    @Override
+    public boolean canDeferPlotChunkLoadEvent() {
+        return true;
+    }
 
     @Override
     public void onClientChunkPacketReplaced(final LevelChunk chunk) {

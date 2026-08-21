@@ -1,13 +1,19 @@
 package dev.ryanhcode.sable.neoforge.platform;
 
 import dev.ryanhcode.sable.platform.SableChunkEventPlatform;
+import dev.ryanhcode.sable.platform.SubLevelReconstructionChunkEventSupport;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import org.jetbrains.annotations.ApiStatus;
 
 @ApiStatus.Internal
-public class SableChunkEventPlatformImpl implements SableChunkEventPlatform {
+public class SableChunkEventPlatformImpl implements SableChunkEventPlatform, SubLevelReconstructionChunkEventSupport {
+
+    @Override
+    public boolean canDeferPlotChunkLoadEvent() {
+        return true;
+    }
 
     @Override
     public void onClientChunkPacketReplaced(final LevelChunk chunk) {

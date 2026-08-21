@@ -2,6 +2,7 @@ package dev.ryanhcode.sable.neoforge.platform;
 
 import com.mojang.logging.LogUtils;
 import dev.ryanhcode.sable.platform.SablePlotPlatform;
+import dev.ryanhcode.sable.platform.SubLevelReconstructionPlotPlatformSupport;
 import net.minecraft.core.RegistryAccess;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.Tag;
@@ -14,9 +15,17 @@ import net.neoforged.neoforge.event.level.ChunkDataEvent;
 import org.slf4j.Logger;
 
 @SuppressWarnings("UnstableApiUsage")
-public class SablePlotPlatformImpl implements SablePlotPlatform {
+public class SablePlotPlatformImpl implements SablePlotPlatform, SubLevelReconstructionPlotPlatformSupport {
 
     private static final Logger LOGGER = LogUtils.getLogger();
+
+    @Override
+    public SubLevelReconstructionPlotPlatformSupport.Capabilities reconstructionPlotCapabilities() {
+        // ChunkDataEvent.Load can be emitted after reconstruction commits. Generic auxiliary-light
+        // and attachment deserialization remains unsupported while detached; snapshots containing
+        // either stay fail-closed through the common platform preflight.
+        return new SubLevelReconstructionPlotPlatformSupport.Capabilities(false, true);
+    }
 
     @Override
     public void readLightData(final CompoundTag tag, final RegistryAccess registryAccess, final LevelChunk chunk) {

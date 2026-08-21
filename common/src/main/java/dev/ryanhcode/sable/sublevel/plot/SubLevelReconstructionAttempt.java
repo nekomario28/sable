@@ -314,7 +314,7 @@ public final class SubLevelReconstructionAttempt {
         }
 
         final SubLevelReconstructionPlatformPreflight.Result platform =
-                SubLevelReconstructionPlatformPreflight.validate();
+                SubLevelReconstructionPlatformPreflight.validate(decodedPayload);
         if (!platform.accepted()) {
             return new PlatformRejected(platform.failures());
         }
