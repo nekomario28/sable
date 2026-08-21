@@ -5,6 +5,8 @@ import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.companion.math.BoundingBox3i;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelReconstructionMassSnapshot;
@@ -93,10 +95,21 @@ public final class ReconstructionRuntimeIdTest {
                 return;
             }
 
+            final int minX = detached.getPlot().getChunkMin().getMinBlockX();
+            final int minZ = detached.getPlot().getChunkMin().getMinBlockZ();
+            final int y = level.getMinBuildHeight();
+            final BoundingBox3i bounds = new BoundingBox3i(minX, y, minZ, minX + 1, y + 1, minZ + 1);
+            detached.getPlot().setBoundingBox(bounds);
+            if (!sameBounds(detached.getPlot().getBoundingBox(), bounds)) {
+                helper.fail("Detached ServerSubLevel did not retain decoded plot bounds exactly");
+                return;
+            }
+
             if (container.getLoadedCount() != loadedBefore ||
                     container.getSubLevel(localPlotX, localPlotZ) != null ||
-                    container.getSubLevel(detachedUuid) != null) {
-                helper.fail("Detached ServerSubLevel construction or mass restore published container state");
+                    container.getSubLevel(detachedUuid) != null ||
+                    !detached.getPlot().getLoadedChunks().isEmpty()) {
+                helper.fail("Detached ServerSubLevel construction, mass or bounds restore published state");
                 return;
             }
 
@@ -187,6 +200,15 @@ public final class ReconstructionRuntimeIdTest {
                 && actual.getCenterOfMass().equals(expected.getCenterOfMass(), 0.0)
                 && actual.getInertiaTensor().equals(expected.getInertiaTensor(), 0.0)
                 && actual.getInverseInertiaTensor().equals(expected.getInverseInertiaTensor(), 0.0);
+    }
+
+    private static boolean sameBounds(final BoundingBox3ic actual, final BoundingBox3ic expected) {
+        return actual.minX() == expected.minX()
+                && actual.minY() == expected.minY()
+                && actual.minZ() == expected.minZ()
+                && actual.maxX() == expected.maxX()
+                && actual.maxY() == expected.maxY()
+                && actual.maxZ() == expected.maxZ();
     }
 
     private static int[] findEmptySlot(final ServerSubLevelContainer container) {
