@@ -57,8 +57,8 @@ public final class ReconstructionSectionTest {
             return;
         }
         final SubLevelReconstructionPhysicsSupport.Capabilities capabilities = physicsSupport.reconstructionCapabilities();
-        if (!capabilities.exactSectionRollback() || capabilities.provisionalBodyLifecycle()) {
-            helper.fail("Rapier reconstruction capability boundary is not section-only");
+        if (!capabilities.exactSectionRollback()) {
+            helper.fail("Rapier reconstruction exact section rollback capability is unavailable");
             return;
         }
 

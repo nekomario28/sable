@@ -9,6 +9,7 @@ import dev.ryanhcode.sable.api.physics.constraint.PhysicsConstraintConfiguration
 import dev.ryanhcode.sable.api.physics.constraint.PhysicsConstraintHandle;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
+import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
 import dev.ryanhcode.sable.physics.impl.rapier.collider.RapierVoxelColliderBakery;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
@@ -30,10 +31,9 @@ import java.util.function.Supplier;
 /**
  * Rapier pipeline entry point for operational reconstruction primitives.
  *
- * <p>Runtime-ID reservations, owner-aware exact section rollback and provisional body
- * acquire/verify/rollback are implemented and verified. Provisional body commit remains
- * deliberately unavailable until native enablement can be coupled atomically with Java live-body
- * publication, so the complete reconstruction capability remains fail-closed at the body gate.</p>
+ * <p>Runtime-ID reservations, owner-aware exact section rollback and provisional body lifecycle
+ * are implemented and verified. Body commit publishes the already-created provisional native body
+ * through the ordinary Java live-body registry without recreating it.</p>
  */
 @ApiStatus.Internal
 final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
@@ -42,7 +42,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         SubLevelReconstructionSectionSupport,
         SubLevelReconstructionBodySupport {
     private static final RapierRuntimeIdAllocator RUNTIME_IDS = new RapierRuntimeIdAllocator();
-    private static final Capabilities RECONSTRUCTION_CAPABILITIES = new Capabilities(true, false);
+    private static final Capabilities RECONSTRUCTION_CAPABILITIES = new Capabilities(true, true);
 
     private final ServerLevel reconstructionLevel;
     private final RapierVoxelColliderBakery reconstructionColliderBakery;
@@ -187,6 +187,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     @Override
     public ReconstructionBodyReservation acquireReconstructionBody(final ServerSubLevel target) {
+        this.requireReconstructionServerThread();
         Objects.requireNonNull(target, "target");
         if (target.isRemoved()) {
             throw new IllegalStateException("Cannot acquire a reconstruction body for a removed SubLevel");
@@ -210,6 +211,9 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         final Pose3dc pose = target.logicalPose();
         final Vector3dc position = pose.position();
         final Quaterniond normalizedOrientation = normalizeOrientation(pose.orientation());
+        final Pose3d committedPose = new Pose3d(pose);
+        committedPose.orientation().set(normalizedOrientation);
+        committedPose.rotationPoint().set(centerOfMass);
         final BoundingBox3ic bounds = target.getPlot().getBoundingBox();
 
         final int[] blockBounds = {
@@ -239,9 +243,13 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         };
 
         final int runtimeId = target.getRuntimeId();
+        final Integer runtimeIdKey = Integer.valueOf(runtimeId);
+        if (this.hasActiveSubLevel(runtimeId)) {
+            throw new IllegalStateException("Java live-body registry already contains runtime ID " + runtimeId);
+        }
         final ReconstructionBodyReservationAdapter reservation =
-                new ReconstructionBodyReservationAdapter(this, runtimeId);
-        if (!this.reconstructionBodyRuntimeIds.add(runtimeId)) {
+                new ReconstructionBodyReservationAdapter(this, target, runtimeId, runtimeIdKey, committedPose);
+        if (!this.reconstructionBodyRuntimeIds.add(runtimeIdKey)) {
             throw new IllegalStateException("Java reconstruction body ownership already exists for runtime ID " + runtimeId);
         }
         boolean acquired = false;
@@ -259,10 +267,20 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             if (!acquired) {
                 throw new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
             }
+            try {
+                reservation.captureCommittedNativePose(centerOfMass);
+            } catch (final RuntimeException | Error captureFailure) {
+                try {
+                    reservation.rollback();
+                } catch (final RuntimeException | Error rollbackFailure) {
+                    captureFailure.addSuppressed(rollbackFailure);
+                }
+                throw captureFailure;
+            }
             return reservation;
         } finally {
             if (!acquired) {
-                this.reconstructionBodyRuntimeIds.remove(runtimeId);
+                this.reconstructionBodyRuntimeIds.remove(runtimeIdKey);
             }
         }
     }
@@ -273,6 +291,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             final SectionPos sectionPos,
             final ReconstructionBlockStateView blockStates
     ) {
+        this.requireReconstructionServerThread();
         Objects.requireNonNull(owner, "owner");
         Objects.requireNonNull(sectionPos, "sectionPos");
         Objects.requireNonNull(blockStates, "blockStates");
@@ -303,6 +322,12 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             throw new IllegalStateException("Rapier rejected transactional reconstruction section acquisition");
         }
         return reservation;
+    }
+
+    private void requireReconstructionServerThread() {
+        if (!this.reconstructionLevel.getServer().isSameThread()) {
+            throw new IllegalStateException("Rapier reconstruction mutation must run on the owning server thread");
+        }
     }
 
     private void rejectProvisionalBodyMutation(@Nullable final PhysicsPipelineBody body) {
@@ -370,15 +395,24 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
     private static final class ReconstructionBodyReservationAdapter
             implements ReconstructionBodyReservation {
         private final TransactionalRapierPhysicsPipeline owner;
+        private final ServerSubLevel target;
         private final int ownerRuntimeId;
+        private final Integer ownerRuntimeIdKey;
+        private final Pose3d committedPose;
         private boolean open = true;
 
         private ReconstructionBodyReservationAdapter(
                 final TransactionalRapierPhysicsPipeline owner,
-                final int ownerRuntimeId
+                final ServerSubLevel target,
+                final int ownerRuntimeId,
+                final Integer ownerRuntimeIdKey,
+                final Pose3dc committedPose
         ) {
             this.owner = Objects.requireNonNull(owner, "owner");
+            this.target = Objects.requireNonNull(target, "target");
             this.ownerRuntimeId = ownerRuntimeId;
+            this.ownerRuntimeIdKey = Objects.requireNonNull(ownerRuntimeIdKey, "ownerRuntimeIdKey");
+            this.committedPose = new Pose3d(Objects.requireNonNull(committedPose, "committedPose"));
         }
 
         @Override
@@ -393,9 +427,13 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
         @Override
         public void verify() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
-            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeId)) {
+            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeIdKey)) {
                 throw new IllegalStateException("Java reconstruction body ownership was lost while reservation remained open");
+            }
+            if (this.owner.hasActiveSubLevel(this.ownerRuntimeId)) {
+                throw new IllegalStateException("Provisional reconstruction body was published through the live-body registry");
             }
             if (!RapierReconstructionNative.verifyReconstructionSubLevelBody(
                     this.owner.getSceneHandle(),
@@ -405,19 +443,68 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             }
         }
 
+        private void captureCommittedNativePose(final Vector3dc centerOfMass) {
+            this.owner.requireReconstructionServerThread();
+            this.requireOpen();
+            this.owner.readPose(this.target, this.committedPose);
+            this.committedPose.rotationPoint().set(centerOfMass);
+        }
+
         @Override
         public void commit() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
-            throw new IllegalStateException(
-                    "Rapier reconstruction body commit is unavailable until live-body publication is atomic"
-            );
+            this.verify();
+
+            final boolean published;
+            try {
+                published = this.owner.publishExistingSubLevel(this.target);
+            } catch (final RuntimeException | Error publicationFailure) {
+                this.owner.unpublishExistingSubLevel(this.target);
+                throw publicationFailure;
+            }
+            if (!published) {
+                throw new IllegalStateException("Java live-body registry rejected reconstruction body publication");
+            }
+
+            final boolean nativeCommitted;
+            try {
+                nativeCommitted = RapierReconstructionNative.commitReconstructionSubLevelBody(
+                        this.owner.getSceneHandle(),
+                        this.ownerRuntimeId
+                );
+            } catch (final RuntimeException | Error nativeFailure) {
+                if (!this.owner.unpublishExistingSubLevel(this.target)) {
+                    nativeFailure.addSuppressed(new IllegalStateException(
+                            "Failed to restore Java live-body registry after native reconstruction commit threw"
+                    ));
+                }
+                throw nativeFailure;
+            }
+            if (!nativeCommitted) {
+                if (!this.owner.unpublishExistingSubLevel(this.target)) {
+                    throw new IllegalStateException(
+                            "Rapier rejected reconstruction body commit and Java live-body registry rollback failed"
+                    );
+                }
+                throw new IllegalStateException("Rapier reconstruction body commit failed");
+            }
+
+            this.target.logicalPose().set(this.committedPose);
+            this.target.updateLastPose();
+            this.owner.reconstructionBodyRuntimeIds.remove(this.ownerRuntimeIdKey);
+            this.open = false;
         }
 
         @Override
         public void rollback() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
-            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeId)) {
+            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeIdKey)) {
                 throw new IllegalStateException("Java reconstruction body ownership was lost before rollback");
+            }
+            if (this.owner.hasActiveSubLevel(this.ownerRuntimeId)) {
+                throw new IllegalStateException("Cannot roll back a reconstruction body published through the live-body registry");
             }
             if (!RapierReconstructionNative.rollbackReconstructionSubLevelBody(
                     this.owner.getSceneHandle(),
@@ -425,7 +512,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             )) {
                 throw new IllegalStateException("Rapier reconstruction body rollback failed");
             }
-            this.owner.reconstructionBodyRuntimeIds.remove(this.ownerRuntimeId);
+            this.owner.reconstructionBodyRuntimeIds.remove(this.ownerRuntimeIdKey);
             this.open = false;
         }
 
@@ -470,6 +557,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
         @Override
         public void verify() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
             if (!RapierReconstructionNative.verifyReconstructionSubLevelChunk(
                     this.owner.getSceneHandle(),
@@ -484,6 +572,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
         @Override
         public void commit() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
             if (!RapierReconstructionNative.commitReconstructionSubLevelChunk(
                     this.owner.getSceneHandle(),
@@ -499,6 +588,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
         @Override
         public void rollback() {
+            this.owner.requireReconstructionServerThread();
             this.requireOpen();
             if (!RapierReconstructionNative.rollbackReconstructionSubLevelChunk(
                     this.owner.getSceneHandle(),
