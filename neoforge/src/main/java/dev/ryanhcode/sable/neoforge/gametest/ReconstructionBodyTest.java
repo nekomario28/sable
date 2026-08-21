@@ -23,6 +23,7 @@ import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.joml.Matrix3d;
 import org.joml.Matrix3dc;
 import org.joml.Quaterniond;
+import org.joml.Quaterniondc;
 import org.joml.Vector2i;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
@@ -36,7 +37,7 @@ public final class ReconstructionBodyTest {
     }
 
     @GameTest(template = "physicstest.gravity")
-    public static void provisionalBodyAcquireVerifyRollbackIsExact(final GameTestHelper helper) {
+    public static void provisionalBodyRollbackAndCommitAreExact(final GameTestHelper helper) {
         final ServerLevel level = helper.getLevel();
         final ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
         if (container == null) {
@@ -56,8 +57,8 @@ public final class ReconstructionBodyTest {
             return;
         }
         final SubLevelReconstructionPhysicsSupport.Capabilities capabilities = physicsSupport.reconstructionCapabilities();
-        if (!capabilities.exactSectionRollback() || capabilities.provisionalBodyLifecycle()) {
-            helper.fail("Rapier reconstruction capability boundary changed before body commit is available");
+        if (!capabilities.exactSectionRollback() || !capabilities.provisionalBodyLifecycle()) {
+            helper.fail("Rapier reconstruction body lifecycle capability is unavailable");
             return;
         }
 
@@ -75,8 +76,10 @@ public final class ReconstructionBodyTest {
         final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation =
                 runtimeIdSupport.reserveReconstructionRuntimeId();
         SubLevelReconstructionBodySupport.ReconstructionBodyReservation bodyReservation = null;
+        ServerSubLevel detached = null;
+        boolean committedBodyLive = false;
         try {
-            final ServerSubLevel detached = detachedTarget(
+            detached = detachedTarget(
                     level,
                     runtimeIdSupport,
                     runtimeReservation,
@@ -101,20 +104,21 @@ public final class ReconstructionBodyTest {
             }
             bodyReservation.verify();
 
-            if (!rejects(() -> physicsSystem.getPipeline().add(detached, detached.logicalPose()))) {
+            final ServerSubLevel provisionalTarget = detached;
+            if (!rejects(() -> physicsSystem.getPipeline().add(provisionalTarget, provisionalTarget.logicalPose()))) {
                 helper.fail("Open reconstruction body allowed publication through the normal live-body registry");
                 return;
             }
-            if (!rejects(() -> physicsSystem.getPipeline().remove(detached))) {
+            if (!rejects(() -> physicsSystem.getPipeline().remove(provisionalTarget))) {
                 helper.fail("Open reconstruction body allowed removal through the normal live-body registry");
                 return;
             }
-            if (!rejects(() -> physicsSystem.getPipeline().onStatsChanged(detached))) {
+            if (!rejects(() -> physicsSystem.getPipeline().onStatsChanged(provisionalTarget))) {
                 helper.fail("Open reconstruction body allowed live mass/bounds mutation");
                 return;
             }
             if (!rejects(() -> physicsSystem.getPipeline().teleport(
-                    detached,
+                    provisionalTarget,
                     new Vector3d(1.0, 2.0, 3.0),
                     new Quaterniond()
             ))) {
@@ -122,7 +126,7 @@ public final class ReconstructionBodyTest {
                 return;
             }
             if (!rejects(() -> physicsSystem.getPipeline().applyImpulse(
-                    detached,
+                    provisionalTarget,
                     new Vector3d(),
                     new Vector3d(1.0, 0.0, 0.0)
             ))) {
@@ -130,7 +134,7 @@ public final class ReconstructionBodyTest {
                 return;
             }
             if (!rejects(() -> physicsSystem.getPipeline().applyLinearAndAngularImpulse(
-                    detached,
+                    provisionalTarget,
                     new Vector3d(1.0, 0.0, 0.0),
                     new Vector3d(0.0, 1.0, 0.0),
                     true
@@ -139,31 +143,19 @@ public final class ReconstructionBodyTest {
                 return;
             }
             if (!rejects(() -> physicsSystem.getPipeline().addLinearAndAngularVelocity(
-                    detached,
+                    provisionalTarget,
                     new Vector3d(1.0, 0.0, 0.0),
                     new Vector3d(0.0, 1.0, 0.0)
             ))) {
                 helper.fail("Open reconstruction body allowed live velocity mutation");
                 return;
             }
-            if (!rejects(() -> physicsSystem.getPipeline().resetVelocity(detached))) {
+            if (!rejects(() -> physicsSystem.getPipeline().resetVelocity(provisionalTarget))) {
                 helper.fail("Open reconstruction body allowed live velocity reset");
                 return;
             }
-            if (!rejects(() -> physicsSystem.getPipeline().wakeUp(detached))) {
+            if (!rejects(() -> physicsSystem.getPipeline().wakeUp(provisionalTarget))) {
                 helper.fail("Open reconstruction body allowed live wake mutation");
-                return;
-            }
-            bodyReservation.verify();
-
-            boolean commitRejected = false;
-            try {
-                bodyReservation.commit();
-            } catch (final IllegalStateException expected) {
-                commitRejected = true;
-            }
-            if (!commitRejected || !bodyReservation.open()) {
-                helper.fail("Unavailable reconstruction body commit did not remain fail-closed and rollbackable");
                 return;
             }
             bodyReservation.verify();
@@ -176,9 +168,21 @@ public final class ReconstructionBodyTest {
 
             bodyReservation = bodySupport.acquireReconstructionBody(detached);
             bodyReservation.verify();
+            bodyReservation.commit();
+            if (bodyReservation.open()) {
+                helper.fail("Committed reconstruction body reservation remained open");
+                return;
+            }
+            committedBodyLive = true;
+
+            physicsSystem.getPipeline().remove(detached);
+            committedBodyLive = false;
+
+            bodyReservation = bodySupport.acquireReconstructionBody(detached);
+            bodyReservation.verify();
             bodyReservation.rollback();
             if (bodyReservation.open()) {
-                helper.fail("Reacquired reconstruction body did not roll back cleanly");
+                helper.fail("Body could not be reacquired and rolled back after ordinary live removal");
                 return;
             }
 
@@ -186,12 +190,15 @@ public final class ReconstructionBodyTest {
                     || container.getSubLevel(emptySlot[0], emptySlot[1]) != null
                     || container.getSubLevel(detachedUuid) != null
                     || !detached.getPlot().getLoadedChunks().isEmpty()) {
-                helper.fail("Provisional body acquire/rollback published Java container state");
+                helper.fail("Reconstruction body lifecycle published Java container state");
                 return;
             }
         } finally {
             if (bodyReservation != null && bodyReservation.open()) {
                 bodyReservation.rollback();
+            }
+            if (committedBodyLive && detached != null) {
+                physicsSystem.getPipeline().remove(detached);
             }
             if (runtimeReservation.open()) {
                 runtimeReservation.rollback();
@@ -229,14 +236,18 @@ public final class ReconstructionBodyTest {
         final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation =
                 runtimeIdSupport.reserveReconstructionRuntimeId();
         SubLevelReconstructionBodySupport.ReconstructionBodyReservation bodyReservation = null;
+        ServerSubLevel detached = null;
+        boolean committedBodyLive = false;
         try {
+            final Vector3d requestedPosition = new Vector3d(0.123456789, -0.234567891, 0.345678912);
+            final Quaterniond requestedOrientation = new Quaterniond(0.3, -0.4, 0.2, 1.7);
             final Pose3d nonUnitPose = new Pose3d(
-                    new Vector3d(),
-                    new Quaterniond(0.0, 0.0, 0.0, 2.0),
+                    requestedPosition,
+                    requestedOrientation,
                     new Vector3d(),
                     new Vector3d(1.0)
             );
-            final ServerSubLevel detached = detachedTarget(
+            detached = detachedTarget(
                     level,
                     runtimeIdSupport,
                     runtimeReservation,
@@ -245,21 +256,50 @@ public final class ReconstructionBodyTest {
                     UUID.randomUUID(),
                     nonUnitPose
             );
-            if (Math.abs(detached.logicalPose().orientation().lengthSquared() - 4.0) > 1.0E-12) {
-                helper.fail("Orientation fixture was normalized before reaching the provider boundary");
+            if (Math.abs(detached.logicalPose().orientation().lengthSquared() - 1.0) <= 1.0E-6
+                    || !sameVector(detached.logicalPose().position(), requestedPosition)) {
+                helper.fail("Native-rounding fixture changed before reaching the provider boundary");
                 return;
             }
 
             bodyReservation = bodySupport.acquireReconstructionBody(detached);
             bodyReservation.verify();
-            bodyReservation.rollback();
+            bodyReservation.commit();
             if (bodyReservation.open()) {
-                helper.fail("Normalized reconstruction body remained open after rollback");
+                helper.fail("Normalized reconstruction body remained open after commit");
                 return;
             }
+            committedBodyLive = true;
+
+            final Pose3d nativePose = new Pose3d();
+            physicsSystem.getPipeline().readPose(detached, nativePose);
+            if (sameVector(nativePose.position(), requestedPosition)) {
+                helper.fail("Native-rounding fixture did not exercise Rapier Real precision narrowing");
+                return;
+            }
+            if (!sameVector(detached.logicalPose().position(), nativePose.position())
+                    || !sameVector(detached.lastPose().position(), nativePose.position())
+                    || !sameOrientation(detached.logicalPose().orientation(), nativePose.orientation())
+                    || !sameOrientation(detached.lastPose().orientation(), nativePose.orientation())) {
+                helper.fail("Committed Java pose did not match the native-rounded Rapier pose");
+                return;
+            }
+            final Vector3dc authoritativeCenter = detached.getMassTracker().getCenterOfMass();
+            if (authoritativeCenter == null
+                    || !sameVector(detached.logicalPose().rotationPoint(), authoritativeCenter)
+                    || !sameVector(detached.lastPose().rotationPoint(), authoritativeCenter)) {
+                helper.fail("Committed Java pose did not use the authoritative native center of mass");
+                return;
+            }
+
+            physicsSystem.getPipeline().remove(detached);
+            committedBodyLive = false;
         } finally {
             if (bodyReservation != null && bodyReservation.open()) {
                 bodyReservation.rollback();
+            }
+            if (committedBodyLive && detached != null) {
+                physicsSystem.getPipeline().remove(detached);
             }
             if (runtimeReservation.open()) {
                 runtimeReservation.rollback();
@@ -374,6 +414,25 @@ public final class ReconstructionBodyTest {
         } catch (final IllegalStateException expected) {
             return true;
         }
+    }
+
+    private static boolean sameOrientation(final Quaterniondc first, final Quaterniondc second) {
+        final double tolerance = 1.0E-12;
+        final boolean direct = Math.abs(first.x() - second.x()) <= tolerance
+                && Math.abs(first.y() - second.y()) <= tolerance
+                && Math.abs(first.z() - second.z()) <= tolerance
+                && Math.abs(first.w() - second.w()) <= tolerance;
+        final boolean negated = Math.abs(first.x() + second.x()) <= tolerance
+                && Math.abs(first.y() + second.y()) <= tolerance
+                && Math.abs(first.z() + second.z()) <= tolerance
+                && Math.abs(first.w() + second.w()) <= tolerance;
+        return direct || negated;
+    }
+
+    private static boolean sameVector(final Vector3dc first, final Vector3dc second) {
+        return Math.abs(first.x() - second.x()) <= 1.0E-12
+                && Math.abs(first.y() - second.y()) <= 1.0E-12
+                && Math.abs(first.z() - second.z()) <= 1.0E-12;
     }
 
     private static ServerSubLevel detachedTarget(

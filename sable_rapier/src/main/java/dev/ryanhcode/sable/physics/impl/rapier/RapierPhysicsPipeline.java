@@ -109,6 +109,32 @@ public class RapierPhysicsPipeline implements PhysicsPipeline {
         return this.scene.handle();
     }
 
+    /** Read-only runtime-ID presence check for transactional subclasses. */
+    protected final boolean hasActiveSubLevel(final int runtimeId) {
+        return this.activeSubLevels.containsKey(runtimeId);
+    }
+
+    /** Publishes an already-created native body into the ordinary Java live-body registry. */
+    protected final boolean publishExistingSubLevel(final ServerSubLevel subLevel) {
+        this.assertBodyValid(subLevel);
+        final int runtimeId = Rapier3D.getID(subLevel);
+        if (this.activeSubLevels.containsKey(runtimeId)) {
+            return false;
+        }
+        this.activeSubLevels.put(runtimeId, subLevel);
+        return this.activeSubLevels.get(runtimeId) == subLevel;
+    }
+
+    /** Removes only the exact object previously published through {@link #publishExistingSubLevel}. */
+    protected final boolean unpublishExistingSubLevel(final ServerSubLevel subLevel) {
+        final int runtimeId = Rapier3D.getID(subLevel);
+        if (this.activeSubLevels.get(runtimeId) != subLevel) {
+            return false;
+        }
+        this.activeSubLevels.remove(runtimeId);
+        return !this.activeSubLevels.containsKey(runtimeId);
+    }
+
     /**
      * Initializes the physics pipeline.
      *
