@@ -14,6 +14,25 @@ final class RapierReconstructionNative {
     private RapierReconstructionNative() {
     }
 
+    static native boolean acquireReconstructionSubLevelBody(
+            long sceneHandle,
+            int objectId,
+            double[] pose,
+            double mass,
+            double[] centerOfMass,
+            double[] inertia,
+            int[] bounds,
+            int[] plotSections
+    );
+
+    static native boolean verifyReconstructionSubLevelBody(long sceneHandle, int objectId);
+
+    static native boolean commitReconstructionSubLevelBody(long sceneHandle, int objectId);
+
+    static native boolean rollbackReconstructionSubLevelBody(long sceneHandle, int objectId);
+
+    static native boolean clearReconstructionBodyOwnershipForScene(long sceneHandle);
+
     static native boolean acquireReconstructionSubLevelChunk(long sceneHandle, int x, int y, int z, int[] data, int objectId);
 
     static native boolean verifyReconstructionSubLevelChunk(long sceneHandle, int x, int y, int z, int objectId);
