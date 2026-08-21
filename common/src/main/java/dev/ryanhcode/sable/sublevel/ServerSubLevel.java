@@ -497,6 +497,19 @@ public class ServerSubLevel extends SubLevel implements PhysicsPipelineBody {
     }
 
     /**
+     * Restores authoritative self-mass for an unpublished reconstruction target without world reads
+     * or physics publication.
+     */
+    @ApiStatus.Internal
+    public void restoreDetachedMassData(final MassData massData) {
+        if (this.massTracker != null) {
+            throw new IllegalStateException("Mass tracker is already initialized");
+        }
+        final MassTracker internalTracker = MassTracker.restore(massData);
+        this.massTracker = MergedMassTracker.restoreDetached(this, internalTracker);
+    }
+
+    /**
      * @return the mass tracker for just the sub-level, not including merged masses
      */
     public MassTracker getSelfMassTracker() {
