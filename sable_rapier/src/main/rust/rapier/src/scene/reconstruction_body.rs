@@ -58,16 +58,16 @@ fn valid_bounds(min: IVec3, max: IVec3) -> bool {
         return false;
     }
 
-    let Some(dx) = max.x.checked_sub(min.x).and_then(|value| value.checked_add(1)) else {
+    let Some(dx) = min.x.abs_diff(max.x).checked_add(1) else {
         return false;
     };
-    let Some(dy) = max.y.checked_sub(min.y).and_then(|value| value.checked_add(1)) else {
+    let Some(dy) = min.y.abs_diff(max.y).checked_add(1) else {
         return false;
     };
-    let Some(dz) = max.z.checked_sub(min.z).and_then(|value| value.checked_add(1)) else {
+    let Some(dz) = min.z.abs_diff(max.z).checked_add(1) else {
         return false;
     };
-    let max_axis = dx.max(dy).max(dz) as u32;
+    let max_axis = dx.max(dy).max(dz);
     max_axis > 0 && max_axis.checked_next_power_of_two().is_some()
 }
 
@@ -88,19 +88,38 @@ fn no_native_sections_in_bounds(scene: &PhysicsScene, min: IVec3, max: IVec3) ->
     true
 }
 
-fn body_matches(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -> bool {
+fn body_identity_matches(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -> bool {
     let sable_data = scene.sable_data.read().unwrap();
-    let Some(rigid_body_handle) = sable_data.rigid_bodies.get(&ownership.owner) else {
-        return false;
-    };
-    if *rigid_body_handle != ownership.rigid_body {
+    if sable_data.rigid_bodies.get(&ownership.owner) != Some(&ownership.rigid_body) {
         return false;
     }
     let Some(info) = sable_data.level_colliders.get(&ownership.owner) else {
         return false;
     };
-    if info.collider != ownership.collider
-        || info.local_bounds_min != Some(ownership.bounds_min)
+    if info.collider != ownership.collider {
+        return false;
+    }
+
+    let sim_data = scene.sim_data.read().unwrap();
+    if sim_data.rigid_body_set.get(ownership.rigid_body).is_none() {
+        return false;
+    }
+    let Some(collider) = sim_data.collider_set.get(ownership.collider) else {
+        return false;
+    };
+    collider.parent() == Some(ownership.rigid_body)
+}
+
+fn body_matches(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -> bool {
+    if !body_identity_matches(scene, ownership) {
+        return false;
+    }
+
+    let sable_data = scene.sable_data.read().unwrap();
+    let Some(info) = sable_data.level_colliders.get(&ownership.owner) else {
+        return false;
+    };
+    if info.local_bounds_min != Some(ownership.bounds_min)
         || info.local_bounds_max != Some(ownership.bounds_max)
         || info.center_of_mass != Some(ownership.center_of_mass)
         || info.octree.is_none()
@@ -112,10 +131,7 @@ fn body_matches(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -
     let Some(rigid_body) = sim_data.rigid_body_set.get(ownership.rigid_body) else {
         return false;
     };
-    let Some(collider) = sim_data.collider_set.get(ownership.collider) else {
-        return false;
-    };
-    if collider.parent() != Some(ownership.rigid_body) || rigid_body.mass() != ownership.mass {
+    if rigid_body.mass() != ownership.mass {
         return false;
     }
 
@@ -130,42 +146,57 @@ fn body_matches(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -
         && rotation.w == ownership.pose[6]
 }
 
-fn remove_exact_body(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnership) -> bool {
-    if !body_matches(scene, ownership)
+fn remove_owned_body(
+    scene: &PhysicsScene,
+    ownership: &ReconstructionBodyOwnership,
+    require_full_state_match: bool,
+) -> bool {
+    if (require_full_state_match && !body_matches(scene, ownership))
+        || (!require_full_state_match && !body_identity_matches(scene, ownership))
         || !no_native_sections_in_bounds(scene, ownership.bounds_min, ownership.bounds_max)
     {
         return false;
     }
 
     let mut sable_data = scene.sable_data.write().unwrap();
-    let Some(rigid_body_handle) = sable_data.rigid_bodies.get(&ownership.owner) else {
+    if sable_data.rigid_bodies.get(&ownership.owner) != Some(&ownership.rigid_body) {
         return false;
-    };
+    }
     let Some(info) = sable_data.level_colliders.get(&ownership.owner) else {
         return false;
     };
-    if *rigid_body_handle != ownership.rigid_body || info.collider != ownership.collider {
+    if info.collider != ownership.collider {
         return false;
     }
 
     let mut sim_data = scene.sim_data.write().unwrap();
-    if sim_data.rigid_body_set.get(ownership.rigid_body).is_none()
-        || sim_data.collider_set.get(ownership.collider).is_none()
-    {
+    if sim_data.rigid_body_set.get(ownership.rigid_body).is_none() {
+        return false;
+    }
+    let Some(collider) = sim_data.collider_set.get(ownership.collider) else {
+        return false;
+    };
+    if collider.parent() != Some(ownership.rigid_body) {
         return false;
     }
 
-    let removed = sim_data.rigid_body_set.remove(
+    let sim = &mut *sim_data;
+    let rigid_body_set = &mut sim.rigid_body_set;
+    let island_manager = &mut sim.island_manager;
+    let collider_set = &mut sim.collider_set;
+    let impulse_joint_set = &mut sim.impulse_joint_set;
+    let multibody_joint_set = &mut sim.multibody_joint_set;
+    let removed = rigid_body_set.remove(
         ownership.rigid_body,
-        &mut sim_data.island_manager,
-        &mut sim_data.collider_set,
-        &mut sim_data.impulse_joint_set,
-        &mut sim_data.multibody_joint_set,
+        island_manager,
+        collider_set,
+        impulse_joint_set,
+        multibody_joint_set,
         true,
     );
     if removed.is_none()
-        || sim_data.rigid_body_set.get(ownership.rigid_body).is_some()
-        || sim_data.collider_set.get(ownership.collider).is_some()
+        || rigid_body_set.get(ownership.rigid_body).is_some()
+        || collider_set.get(ownership.collider).is_some()
     {
         return false;
     }
@@ -331,16 +362,16 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_RapierRecons
         state: OwnershipState::Open,
     };
 
+    ownerships.insert(registry_key, ownership);
     let verified = with_handle(handle, |scene| body_matches(scene, &ownership));
     if !verified {
-        let restored = with_handle(handle, |scene| remove_exact_body(scene, &ownership));
-        if !restored {
-            return 0;
+        let restored = with_handle(handle, |scene| remove_owned_body(scene, &ownership, false));
+        if restored {
+            ownerships.remove(&registry_key);
         }
         return 0;
     }
 
-    ownerships.insert(registry_key, ownership);
     1
 }
 
@@ -409,7 +440,7 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_RapierRecons
     if ownership.state != OwnershipState::Open {
         return 0;
     }
-    if !with_handle(handle, |scene| remove_exact_body(scene, &ownership)) {
+    if !with_handle(handle, |scene| remove_owned_body(scene, &ownership, true)) {
         return 0;
     }
     ownerships.remove(&registry_key);
