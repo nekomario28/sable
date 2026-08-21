@@ -2,7 +2,13 @@ package dev.ryanhcode.sable.physics.impl.rapier;
 
 import org.jetbrains.annotations.ApiStatus;
 
-/** Dedicated JNI bridge for transactional reconstruction operations. */
+/**
+ * Dedicated JNI bridge for transactional reconstruction operations.
+ *
+ * <p>Body lifecycle symbols are invoked only after the matching Rust sources have been repacked
+ * into the bundled Rapier native archive; PR verification also rebuilds the native library before
+ * running the reconstruction GameTests.</p>
+ */
 @ApiStatus.Internal
 final class RapierReconstructionNative {
     static {
