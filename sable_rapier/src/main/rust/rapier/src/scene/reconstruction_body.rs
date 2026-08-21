@@ -1,4 +1,4 @@
-use super::{LevelColliderID, PhysicsScene, pack_section_pos};
+use super::{LevelColliderID, PhysicsScene, SimulationSceneData, pack_section_pos};
 use crate::collider::{LevelCollider, update_collider_aabb};
 use crate::groups::LEVEL_GROUP;
 use crate::{ActiveLevelColliderInfo, get_physics_state, with_handle};
@@ -331,16 +331,19 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_RapierRecons
             .density(0.0)
             .collision_groups(LEVEL_GROUP)
             .build();
-        let collider_handle = sim_data.collider_set.insert_with_parent(
-            collider,
-            rigid_body_handle,
-            &mut sim_data.rigid_body_set,
-        );
+        let collider_handle = {
+            let SimulationSceneData {
+                rigid_body_set,
+                collider_set,
+                ..
+            } = &mut *sim_data;
+            collider_set.insert_with_parent(collider, rigid_body_handle, rigid_body_set)
+        };
 
         let mut info = ActiveLevelColliderInfo::new(collider_handle);
         info.center_of_mass = Some(center_native);
         info.set_local_bounds(bounds_min, bounds_max, &sable_data.main_level_chunks, collider_map);
-        update_collider_aabb(&mut sim_data, &info);
+        update_collider_aabb(&mut *sim_data, &info);
 
         sable_data.rigid_bodies.insert(owner, rigid_body_handle);
         sable_data.level_colliders.insert(owner, info);
