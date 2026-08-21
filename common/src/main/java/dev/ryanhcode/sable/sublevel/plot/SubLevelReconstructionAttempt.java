@@ -11,7 +11,7 @@ import java.util.Objects;
 import java.util.Set;
 
 /**
- * Prepared, mutation-free entry point for a future transactional SubLevel reconstruction.
+ * Prepared, mutation-free entry point for transactional SubLevel reconstruction.
  *
  * <p>Preparation always runs the mutation-free serialized-data preflight first, freezes accepted
  * input into an immutable plan, validates deterministic payload codecs/metadata and authoritative
@@ -21,8 +21,9 @@ import java.util.Set;
  * verifies current target physics capabilities, and then captures a fresh target-container rollback
  * baseline. A transaction token is created only after every gate succeeds.</p>
  *
- * <p>This class still has no materialization implementation. In particular it never calls legacy
- * {@code SubLevelSerializer.fullyLoad} and cannot fall back to it.</p>
+ * <p>The first materialization stage remains fully detached: it may reserve provider runtime/body/
+ * section state through {@link #materializeDetachedPhysics()}, but still cannot allocate a live
+ * target chunk or publish the target through the SubLevel container.</p>
  */
 @ApiStatus.Experimental
 public final class SubLevelReconstructionAttempt {
@@ -347,6 +348,14 @@ public final class SubLevelReconstructionAttempt {
 
     public SubLevelReconstructionTransaction.State state() {
         return this.transaction.state();
+    }
+
+    /**
+     * Acquires the first transactional materialization stage while keeping all Java world/container
+     * publication detached and rollbackable.
+     */
+    public SubLevelReconstructionDetachedPhysics materializeDetachedPhysics() {
+        return SubLevelReconstructionDetachedPhysics.acquire(this);
     }
 
     @ApiStatus.Internal
