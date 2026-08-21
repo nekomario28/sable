@@ -1,4 +1,4 @@
-use super::{ChunkMap, LevelColliderID, PhysicsScene, pack_section_pos};
+use super::{ChunkMap, LevelColliderID, PhysicsScene, SimulationSceneData, pack_section_pos};
 use crate::collider::{LevelCollider, update_collider_aabb};
 use crate::groups::LEVEL_GROUP;
 use crate::{ActiveLevelColliderInfo, with_handle};
@@ -319,11 +319,14 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
                 .density(0.0)
                 .collision_groups(LEVEL_GROUP)
                 .build();
-            let collider_handle = sim_data.collider_set.insert_with_parent(
-                collider,
-                body_handle,
-                &mut sim_data.rigid_body_set,
-            );
+            let collider_handle = {
+                let SimulationSceneData {
+                    rigid_body_set,
+                    collider_set,
+                    ..
+                } = &mut *sim_data;
+                collider_set.insert_with_parent(collider, body_handle, rigid_body_set)
+            };
 
             {
                 let sim_data = &mut *sim_data;
