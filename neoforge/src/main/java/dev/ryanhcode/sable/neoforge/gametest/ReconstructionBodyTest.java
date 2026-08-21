@@ -4,6 +4,7 @@ import dev.ryanhcode.sable.Sable;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionBodySupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
+import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
@@ -12,9 +13,11 @@ import dev.ryanhcode.sable.companion.math.Pose3d;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelReconstructionMassSnapshot;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
+import net.minecraft.core.SectionPos;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.joml.Matrix3d;
@@ -72,24 +75,14 @@ public final class ReconstructionBodyTest {
                 runtimeIdSupport.reserveReconstructionRuntimeId();
         SubLevelReconstructionBodySupport.ReconstructionBodyReservation bodyReservation = null;
         try {
-            final ServerSubLevel detached = runtimeIdSupport.withReservedRuntimeId(
+            final ServerSubLevel detached = detachedTarget(
+                    level,
+                    runtimeIdSupport,
                     runtimeReservation,
-                    () -> new ServerSubLevel(level, globalPlotX, globalPlotZ, new Pose3d())
+                    globalPlotX,
+                    globalPlotZ,
+                    detachedUuid
             );
-            detached.setUniqueId(detachedUuid);
-            detached.restoreDetachedMassData(authoritativeMass());
-
-            final int minX = detached.getPlot().getChunkMin().getMinBlockX();
-            final int minZ = detached.getPlot().getChunkMin().getMinBlockZ();
-            final int minY = level.getMinBuildHeight();
-            detached.getPlot().setBoundingBox(new BoundingBox3i(
-                    minX,
-                    minY,
-                    minZ,
-                    minX + 1,
-                    minY + 1,
-                    minZ + 1
-            ));
 
             if (container.getLoadedCount() != loadedBefore
                     || container.getSubLevel(emptySlot[0], emptySlot[1]) != null
@@ -149,6 +142,132 @@ public final class ReconstructionBodyTest {
         }
 
         helper.succeed();
+    }
+
+    @GameTest(template = "physicstest.gravity")
+    public static void openSectionOutsideBodyBoundsBlocksBodyRollback(final GameTestHelper helper) {
+        final ServerLevel level = helper.getLevel();
+        final ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
+        if (container == null) {
+            helper.fail("Sub-level container is unavailable");
+            return;
+        }
+
+        final SubLevelPhysicsSystem physicsSystem = container.physicsSystem();
+        if (physicsSystem == null) {
+            helper.fail("Sub-level physics system is unavailable");
+            return;
+        }
+        if (!(physicsSystem.getPipeline() instanceof final SubLevelReconstructionRuntimeIdSupport runtimeIdSupport)
+                || !(physicsSystem.getPipeline() instanceof final SubLevelReconstructionBodySupport bodySupport)
+                || !(physicsSystem.getPipeline() instanceof final SubLevelReconstructionSectionSupport sectionSupport)) {
+            helper.fail("Physics pipeline does not expose reconstruction body/section prerequisites");
+            return;
+        }
+
+        final int[] emptySlot = findEmptySlot(container);
+        if (emptySlot == null) {
+            helper.fail("No empty target plot available for reconstruction body ordering test");
+            return;
+        }
+        final Vector2i origin = container.getOrigin();
+        final int globalPlotX = origin.x + emptySlot[0];
+        final int globalPlotZ = origin.y + emptySlot[1];
+        final UUID detachedUuid = UUID.randomUUID();
+
+        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation =
+                runtimeIdSupport.reserveReconstructionRuntimeId();
+        SubLevelReconstructionBodySupport.ReconstructionBodyReservation bodyReservation = null;
+        SubLevelReconstructionSectionSupport.ReconstructionSectionReservation sectionReservation = null;
+        try {
+            final ServerSubLevel detached = detachedTarget(
+                    level,
+                    runtimeIdSupport,
+                    runtimeReservation,
+                    globalPlotX,
+                    globalPlotZ,
+                    detachedUuid
+            );
+            bodyReservation = bodySupport.acquireReconstructionBody(detached);
+            bodyReservation.verify();
+
+            final SectionPos blocker = SectionPos.of(
+                    detached.getPlot().getChunkMax().x,
+                    level.getMaxSection() - 1,
+                    detached.getPlot().getChunkMax().z
+            );
+            sectionReservation = sectionSupport.acquireReconstructionSection(
+                    detached,
+                    blocker,
+                    (x, y, z) -> Blocks.AIR.defaultBlockState()
+            );
+            sectionReservation.verify();
+
+            boolean rollbackRejected = false;
+            try {
+                bodyReservation.rollback();
+            } catch (final IllegalStateException expected) {
+                rollbackRejected = true;
+            }
+            if (!rollbackRejected || !bodyReservation.open() || !sectionReservation.open()) {
+                helper.fail("Open reconstruction section did not keep body rollback fail-closed");
+                return;
+            }
+            bodyReservation.verify();
+            sectionReservation.verify();
+
+            sectionReservation.rollback();
+            if (sectionReservation.open()) {
+                helper.fail("Blocking reconstruction section remained open after rollback");
+                return;
+            }
+            bodyReservation.rollback();
+            if (bodyReservation.open()) {
+                helper.fail("Body did not roll back after the blocking section was removed");
+                return;
+            }
+        } finally {
+            if (sectionReservation != null && sectionReservation.open()) {
+                sectionReservation.rollback();
+            }
+            if (bodyReservation != null && bodyReservation.open()) {
+                bodyReservation.rollback();
+            }
+            if (runtimeReservation.open()) {
+                runtimeReservation.rollback();
+            }
+        }
+
+        helper.succeed();
+    }
+
+    private static ServerSubLevel detachedTarget(
+            final ServerLevel level,
+            final SubLevelReconstructionRuntimeIdSupport runtimeIdSupport,
+            final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation,
+            final int globalPlotX,
+            final int globalPlotZ,
+            final UUID detachedUuid
+    ) {
+        final ServerSubLevel detached = runtimeIdSupport.withReservedRuntimeId(
+                runtimeReservation,
+                () -> new ServerSubLevel(level, globalPlotX, globalPlotZ, new Pose3d())
+        );
+        detached.setUniqueId(detachedUuid);
+        detached.restoreDetachedMassData(authoritativeMass());
+
+        final int minX = detached.getPlot().getChunkMin().getMinBlockX();
+        final int minZ = detached.getPlot().getChunkMin().getMinBlockZ();
+        final int minY = level.getMinBuildHeight();
+        detached.getPlot().setBoundingBox(new BoundingBox3i(
+                minX,
+                minY,
+                minZ,
+                minX + 1,
+                minY + 1,
+                minZ + 1
+        ));
+        return detached;
     }
 
     private static SubLevelReconstructionMassSnapshot authoritativeMass() {
