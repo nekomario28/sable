@@ -179,6 +179,8 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         };
 
         final int runtimeId = target.getRuntimeId();
+        final ReconstructionBodyReservationAdapter reservation =
+                new ReconstructionBodyReservationAdapter(this, runtimeId);
         if (!this.reconstructionBodyRuntimeIds.add(runtimeId)) {
             throw new IllegalStateException("Java reconstruction body ownership already exists for runtime ID " + runtimeId);
         }
@@ -197,7 +199,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             if (!acquired) {
                 throw new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
             }
-            return new ReconstructionBodyReservationAdapter(this, runtimeId);
+            return reservation;
         } finally {
             if (!acquired) {
                 this.reconstructionBodyRuntimeIds.remove(runtimeId);
