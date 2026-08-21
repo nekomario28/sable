@@ -1,4 +1,4 @@
-use super::{ChunkMap, LevelColliderID, PhysicsScene, reconstruction_section};
+use super::{ChunkMap, LevelColliderID, PhysicsScene, pack_section_pos};
 use crate::collider::{LevelCollider, update_collider_aabb};
 use crate::groups::LEVEL_GROUP;
 use crate::{ActiveLevelColliderInfo, with_handle};
@@ -20,6 +20,8 @@ struct ReconstructionBodyOwnership {
     expected_center_of_mass: DVec3,
     expected_bounds_min: IVec3,
     expected_bounds_max: IVec3,
+    plot_section_min: IVec3,
+    plot_section_max: IVec3,
 }
 
 static RECONSTRUCTION_BODIES: OnceLock<
@@ -31,7 +33,10 @@ fn reconstruction_bodies(
     RECONSTRUCTION_BODIES.get_or_init(|| RwLock::new(HashMap::new()))
 }
 
-fn read_double_array<const N: usize>(env: &JNIEnv<'_>, data: &JDoubleArray<'_>) -> Option<[jdouble; N]> {
+fn read_double_array<const N: usize>(
+    env: &JNIEnv<'_>,
+    data: &JDoubleArray<'_>,
+) -> Option<[jdouble; N]> {
     if env.get_array_length(data).ok()? != N as i32 {
         return None;
     }
@@ -40,7 +45,7 @@ fn read_double_array<const N: usize>(env: &JNIEnv<'_>, data: &JDoubleArray<'_>) 
     values.iter().all(|value| value.is_finite()).then_some(values)
 }
 
-fn read_bounds(env: &JNIEnv<'_>, data: &JIntArray<'_>) -> Option<(IVec3, IVec3)> {
+fn read_box(env: &JNIEnv<'_>, data: &JIntArray<'_>) -> Option<(IVec3, IVec3)> {
     if env.get_array_length(data).ok()? != 6 {
         return None;
     }
@@ -49,6 +54,24 @@ fn read_bounds(env: &JNIEnv<'_>, data: &JIntArray<'_>) -> Option<(IVec3, IVec3)>
     let min = IVec3::new(values[0], values[1], values[2]);
     let max = IVec3::new(values[3], values[4], values[5]);
     (min.x <= max.x && min.y <= max.y && min.z <= max.z).then_some((min, max))
+}
+
+fn plot_section_state_empty(
+    scene: &PhysicsScene,
+    section_min: IVec3,
+    section_max: IVec3,
+) -> bool {
+    let sable_data = scene.sable_data.read().unwrap();
+    for x in section_min.x..=section_max.x {
+        for y in section_min.y..=section_max.y {
+            for z in section_min.z..=section_max.z {
+                if sable_data.main_level_chunks.contains_key(&pack_section_pos(x, y, z)) {
+                    return false;
+                }
+            }
+        }
+    }
+    true
 }
 
 fn pose_matches(body: &RigidBody, expected: &[Real; 7]) -> bool {
@@ -126,12 +149,6 @@ fn remove_owned_body(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnersh
     }
 
     {
-        let mut sable_data = scene.sable_data.write().unwrap();
-        sable_data.rigid_bodies.remove(&ownership.owner);
-        sable_data.level_colliders.remove(&ownership.owner);
-    }
-
-    {
         let mut sim_data = scene.sim_data.write().unwrap();
         let sim_data = &mut *sim_data;
         if sim_data
@@ -155,6 +172,19 @@ fn remove_owned_body(scene: &PhysicsScene, ownership: &ReconstructionBodyOwnersh
         }
     }
 
+    {
+        let mut sable_data = scene.sable_data.write().unwrap();
+        if sable_data.rigid_bodies.remove(&ownership.owner) != Some(ownership.body_handle) {
+            return false;
+        }
+        let Some(info) = sable_data.level_colliders.remove(&ownership.owner) else {
+            return false;
+        };
+        if info.collider != ownership.collider_handle {
+            return false;
+        }
+    }
+
     let sable_data = scene.sable_data.read().unwrap();
     !sable_data.rigid_bodies.contains_key(&ownership.owner)
         && !sable_data.level_colliders.contains_key(&ownership.owner)
@@ -171,6 +201,7 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
     center_of_mass: JDoubleArray<'local>,
     inertia: JDoubleArray<'local>,
     bounds: JIntArray<'local>,
+    plot_sections: JIntArray<'local>,
 ) -> jboolean {
     if handle == 0 || object_id < 0 || !mass.is_finite() || mass <= 0.0 {
         return 0;
@@ -185,7 +216,10 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
     let Some(inertia_arr) = read_double_array::<9>(&env, &inertia) else {
         return 0;
     };
-    let Some((bounds_min, bounds_max)) = read_bounds(&env, &bounds) else {
+    let Some((bounds_min, bounds_max)) = read_box(&env, &bounds) else {
+        return 0;
+    };
+    let Some((plot_section_min, plot_section_max)) = read_box(&env, &plot_sections) else {
         return 0;
     };
 
@@ -238,6 +272,10 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
     }
 
     let acquired = with_handle(handle, |scene| {
+        if !plot_section_state_empty(scene, plot_section_min, plot_section_max) {
+            return None;
+        }
+
         let physics_state = crate::get_physics_state();
         let collider_map = &physics_state.voxel_collider_map;
 
@@ -319,14 +357,15 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
             expected_center_of_mass,
             expected_bounds_min: bounds_min,
             expected_bounds_max: bounds_max,
+            plot_section_min,
+            plot_section_max,
         })
     });
 
     let Some(ownership) = acquired else {
         return 0;
     };
-    let verified = with_handle(handle, |scene| body_matches(scene, &ownership));
-    if !verified {
+    if !with_handle(handle, |scene| body_matches(scene, &ownership)) {
         with_handle(handle, |scene| {
             let _ = remove_owned_body(scene, &ownership);
         });
@@ -355,46 +394,16 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_ver
     with_handle(handle, |scene| body_matches(scene, ownership) as jboolean)
 }
 
+/// Commit remains deliberately unavailable until Java live-registry publication can be coupled
+/// atomically with native enablement. Rollback proof is the current safety milestone.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_commitReconstructionSubLevelBody<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
-    handle: jlong,
-    object_id: jint,
+    _handle: jlong,
+    _object_id: jint,
 ) -> jboolean {
-    if handle == 0 || object_id < 0 {
-        return 0;
-    }
-    let owner = object_id as LevelColliderID;
-    if reconstruction_section::has_open_ownership_for_owner(handle, owner) {
-        return 0;
-    }
-
-    let mut ownerships = reconstruction_bodies().write().unwrap();
-    let Some(ownership) = ownerships.get(&(handle, owner)) else {
-        return 0;
-    };
-    if !with_handle(handle, |scene| body_matches(scene, ownership)) {
-        return 0;
-    }
-
-    let enabled = with_handle(handle, |scene| {
-        let mut sim_data = scene.sim_data.write().unwrap();
-        let Some(body) = sim_data.rigid_body_set.get_mut(ownership.body_handle) else {
-            return false;
-        };
-        if body.is_enabled() {
-            return false;
-        }
-        body.set_enabled(true);
-        body.is_enabled()
-    });
-    if !enabled {
-        return 0;
-    }
-
-    ownerships.remove(&(handle, owner));
-    1
+    0
 }
 
 #[unsafe(no_mangle)]
@@ -408,15 +417,21 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_rol
         return 0;
     }
     let owner = object_id as LevelColliderID;
-    if reconstruction_section::has_any_ownership_for_owner(handle, owner) {
-        return 0;
-    }
 
     let mut ownerships = reconstruction_bodies().write().unwrap();
     let Some(ownership) = ownerships.get(&(handle, owner)) else {
         return 0;
     };
     if !with_handle(handle, |scene| body_matches(scene, ownership)) {
+        return 0;
+    }
+    if !with_handle(handle, |scene| {
+        plot_section_state_empty(
+            scene,
+            ownership.plot_section_min,
+            ownership.plot_section_max,
+        )
+    }) {
         return 0;
     }
     if !with_handle(handle, |scene| remove_owned_body(scene, ownership)) {
