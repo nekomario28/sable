@@ -240,27 +240,35 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
         pose_arr[5] as Real,
         pose_arr[6] as Real,
     ];
+    let mass_native = mass as Real;
+    let inertia_native = [
+        inertia_arr[0] as Real,
+        inertia_arr[1] as Real,
+        inertia_arr[2] as Real,
+        inertia_arr[3] as Real,
+        inertia_arr[4] as Real,
+        inertia_arr[5] as Real,
+        inertia_arr[6] as Real,
+        inertia_arr[7] as Real,
+        inertia_arr[8] as Real,
+    ];
+    if !expected_pose.iter().all(|value| value.is_finite())
+        || !mass_native.is_finite()
+        || mass_native <= 0.0
+        || !inertia_native.iter().all(|value| value.is_finite())
+    {
+        return 0;
+    }
+
     let expected_center_of_mass = DVec3::new(center_arr[0], center_arr[1], center_arr[2]);
     let inertia_tensor = Mat3::from_cols(
-        Vec3::new(
-            inertia_arr[0] as Real,
-            inertia_arr[1] as Real,
-            inertia_arr[2] as Real,
-        ),
-        Vec3::new(
-            inertia_arr[3] as Real,
-            inertia_arr[4] as Real,
-            inertia_arr[5] as Real,
-        ),
-        Vec3::new(
-            inertia_arr[6] as Real,
-            inertia_arr[7] as Real,
-            inertia_arr[8] as Real,
-        ),
+        Vec3::new(inertia_native[0], inertia_native[1], inertia_native[2]),
+        Vec3::new(inertia_native[3], inertia_native[4], inertia_native[5]),
+        Vec3::new(inertia_native[6], inertia_native[7], inertia_native[8]),
     );
     let expected_mass_properties = MassProperties::with_inertia_matrix(
         Vec3::ZERO,
-        mass as Real,
+        mass_native,
         inertia_tensor.into(),
     );
     let owner = object_id as LevelColliderID;
