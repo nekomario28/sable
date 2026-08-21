@@ -18,7 +18,9 @@ import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3dc;
 
+import java.util.HashSet;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 
 /**
@@ -40,6 +42,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     private final ServerLevel reconstructionLevel;
     private final RapierVoxelColliderBakery reconstructionColliderBakery;
+    private final Set<Integer> reconstructionBodyRuntimeIds = new HashSet<>();
     private boolean reconstructionSceneInitialized;
 
     TransactionalRapierPhysicsPipeline(final ServerLevel level) {
@@ -61,6 +64,9 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
 
     @Override
     public void dispose() {
+        if (!this.reconstructionBodyRuntimeIds.isEmpty()) {
+            throw new IllegalStateException("Rapier refused to dispose a scene with open Java reconstruction body ownership");
+        }
         if (this.reconstructionSceneInitialized
                 && !RapierReconstructionNative.clearReconstructionBodyOwnershipForScene(this.getSceneHandle())) {
             throw new IllegalStateException("Rapier refused to dispose a scene with open reconstruction body ownership");
@@ -94,6 +100,28 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             throw new IllegalArgumentException("Runtime ID reservation was not created by this physics pipeline");
         }
         return RUNTIME_IDS.withReservation(adapter.delegate, allocation);
+    }
+
+    @Override
+    public void add(final ServerSubLevel subLevel, final Pose3dc pose) {
+        Objects.requireNonNull(subLevel, "subLevel");
+        if (this.reconstructionBodyRuntimeIds.contains(subLevel.getRuntimeId())) {
+            throw new IllegalStateException(
+                    "Cannot publish a SubLevel while its reconstruction body is still provisional"
+            );
+        }
+        super.add(subLevel, pose);
+    }
+
+    @Override
+    public void remove(final ServerSubLevel subLevel) {
+        Objects.requireNonNull(subLevel, "subLevel");
+        if (this.reconstructionBodyRuntimeIds.contains(subLevel.getRuntimeId())) {
+            throw new IllegalStateException(
+                    "Cannot remove a SubLevel through the live registry while its reconstruction body is provisional"
+            );
+        }
+        super.remove(subLevel);
     }
 
     @Override
@@ -151,19 +179,30 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         };
 
         final int runtimeId = target.getRuntimeId();
-        if (!RapierReconstructionNative.acquireReconstructionSubLevelBody(
-                this.getSceneHandle(),
-                runtimeId,
-                poseArray,
-                massData.getMass(),
-                centerOfMassArray,
-                inertiaArray,
-                blockBounds,
-                plotSections
-        )) {
-            throw new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
+        if (!this.reconstructionBodyRuntimeIds.add(runtimeId)) {
+            throw new IllegalStateException("Java reconstruction body ownership already exists for runtime ID " + runtimeId);
         }
-        return new ReconstructionBodyReservationAdapter(this, runtimeId);
+        boolean acquired = false;
+        try {
+            acquired = RapierReconstructionNative.acquireReconstructionSubLevelBody(
+                    this.getSceneHandle(),
+                    runtimeId,
+                    poseArray,
+                    massData.getMass(),
+                    centerOfMassArray,
+                    inertiaArray,
+                    blockBounds,
+                    plotSections
+            );
+            if (!acquired) {
+                throw new IllegalStateException("Rapier rejected transactional reconstruction body acquisition");
+            }
+            return new ReconstructionBodyReservationAdapter(this, runtimeId);
+        } finally {
+            if (!acquired) {
+                this.reconstructionBodyRuntimeIds.remove(runtimeId);
+            }
+        }
     }
 
     @Override
@@ -261,6 +300,9 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         @Override
         public void verify() {
             this.requireOpen();
+            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeId)) {
+                throw new IllegalStateException("Java reconstruction body ownership was lost while reservation remained open");
+            }
             if (!RapierReconstructionNative.verifyReconstructionSubLevelBody(
                     this.owner.getSceneHandle(),
                     this.ownerRuntimeId
@@ -280,12 +322,16 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         @Override
         public void rollback() {
             this.requireOpen();
+            if (!this.owner.reconstructionBodyRuntimeIds.contains(this.ownerRuntimeId)) {
+                throw new IllegalStateException("Java reconstruction body ownership was lost before rollback");
+            }
             if (!RapierReconstructionNative.rollbackReconstructionSubLevelBody(
                     this.owner.getSceneHandle(),
                     this.ownerRuntimeId
             )) {
                 throw new IllegalStateException("Rapier reconstruction body rollback failed");
             }
+            this.owner.reconstructionBodyRuntimeIds.remove(this.ownerRuntimeId);
             this.open = false;
         }
 
