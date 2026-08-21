@@ -368,14 +368,14 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_acq
     let Some(ownership) = acquired else {
         return 0;
     };
+    ownerships.insert(registry_key, ownership.clone());
     if !with_handle(handle, |scene| body_matches(scene, &ownership)) {
-        with_handle(handle, |scene| {
-            let _ = remove_owned_body(scene, &ownership);
-        });
+        if with_handle(handle, |scene| remove_owned_body(scene, &ownership)) {
+            ownerships.remove(&registry_key);
+        }
         return 0;
     }
 
-    ownerships.insert(registry_key, ownership);
     1
 }
 
