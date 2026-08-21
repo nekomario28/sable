@@ -1,9 +1,12 @@
 package dev.ryanhcode.sable.physics.impl.rapier;
 
+import dev.ryanhcode.sable.api.physics.PhysicsPipelineBody;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionBodySupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionPhysicsSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.physics.SubLevelReconstructionSectionSupport;
+import dev.ryanhcode.sable.api.physics.constraint.PhysicsConstraintConfiguration;
+import dev.ryanhcode.sable.api.physics.constraint.PhysicsConstraintHandle;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.companion.math.Pose3dc;
@@ -12,6 +15,7 @@ import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import net.minecraft.core.SectionPos;
 import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.ApiStatus;
+import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3dc;
 import org.joml.Quaterniond;
@@ -105,23 +109,80 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
     @Override
     public void add(final ServerSubLevel subLevel, final Pose3dc pose) {
         Objects.requireNonNull(subLevel, "subLevel");
-        if (this.reconstructionBodyRuntimeIds.contains(subLevel.getRuntimeId())) {
-            throw new IllegalStateException(
-                    "Cannot publish a SubLevel while its reconstruction body is still provisional"
-            );
-        }
+        this.rejectProvisionalBodyMutation(subLevel);
         super.add(subLevel, pose);
     }
 
     @Override
     public void remove(final ServerSubLevel subLevel) {
         Objects.requireNonNull(subLevel, "subLevel");
-        if (this.reconstructionBodyRuntimeIds.contains(subLevel.getRuntimeId())) {
-            throw new IllegalStateException(
-                    "Cannot remove a SubLevel through the live registry while its reconstruction body is provisional"
-            );
-        }
+        this.rejectProvisionalBodyMutation(subLevel);
         super.remove(subLevel);
+    }
+
+    @Override
+    public void onStatsChanged(@NotNull final ServerSubLevel subLevel) {
+        this.rejectProvisionalBodyMutation(subLevel);
+        super.onStatsChanged(subLevel);
+    }
+
+    @Override
+    public void teleport(
+            final PhysicsPipelineBody body,
+            final Vector3dc position,
+            final Quaterniondc orientation
+    ) {
+        this.rejectProvisionalBodyMutation(body);
+        super.teleport(body, position, orientation);
+    }
+
+    @Override
+    public void applyImpulse(
+            final PhysicsPipelineBody body,
+            final Vector3dc position,
+            final Vector3dc force
+    ) {
+        this.rejectProvisionalBodyMutation(body);
+        super.applyImpulse(body, position, force);
+    }
+
+    @Override
+    public void applyLinearAndAngularImpulse(
+            final PhysicsPipelineBody body,
+            final Vector3dc force,
+            final Vector3dc torque,
+            final boolean wakeUp
+    ) {
+        this.rejectProvisionalBodyMutation(body);
+        super.applyLinearAndAngularImpulse(body, force, torque, wakeUp);
+    }
+
+    @Override
+    public void addLinearAndAngularVelocity(
+            final PhysicsPipelineBody body,
+            final Vector3dc linearVelocity,
+            final Vector3dc angularVelocity
+    ) {
+        this.rejectProvisionalBodyMutation(body);
+        super.addLinearAndAngularVelocity(body, linearVelocity, angularVelocity);
+    }
+
+    @Override
+    public void wakeUp(final PhysicsPipelineBody body) {
+        this.rejectProvisionalBodyMutation(body);
+        super.wakeUp(body);
+    }
+
+    @Override
+    @Nullable
+    public <T extends PhysicsConstraintHandle> T addConstraint(
+            @Nullable final PhysicsPipelineBody bodyA,
+            @Nullable final PhysicsPipelineBody bodyB,
+            @NotNull final PhysicsConstraintConfiguration<T> configuration
+    ) {
+        this.rejectProvisionalBodyMutation(bodyA);
+        this.rejectProvisionalBodyMutation(bodyB);
+        return super.addConstraint(bodyA, bodyB, configuration);
     }
 
     @Override
@@ -242,6 +303,15 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             throw new IllegalStateException("Rapier rejected transactional reconstruction section acquisition");
         }
         return reservation;
+    }
+
+    private void rejectProvisionalBodyMutation(@Nullable final PhysicsPipelineBody body) {
+        if (body instanceof final ServerSubLevel subLevel
+                && this.reconstructionBodyRuntimeIds.contains(subLevel.getRuntimeId())) {
+            throw new IllegalStateException(
+                    "Cannot use the live-body mutation API while a reconstruction body is provisional"
+            );
+        }
     }
 
     private static Quaterniond normalizeOrientation(final Quaterniondc orientation) {
