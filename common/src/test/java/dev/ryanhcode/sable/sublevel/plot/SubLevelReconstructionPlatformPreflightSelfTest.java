@@ -13,6 +13,7 @@ public final class SubLevelReconstructionPlatformPreflightSelfTest {
         missingOptInFailsClosed();
         partialPlotSupportReportsExactFailures();
         missingEventDeferralIsRejected();
+        platformDataFreeSubsetSkipsDetachedReadCapability();
         completeSupportIsAccepted();
         System.out.println("SUB_LEVEL_RECONSTRUCTION_PLATFORM_PREFLIGHT_SELF_TEST: PASS");
     }
@@ -49,6 +50,22 @@ public final class SubLevelReconstructionPlatformPreflightSelfTest {
 
         assert result.failures().equals(Set.of(
                 SubLevelReconstructionPlatformPreflight.Failure.CHUNK_LOAD_EVENT_DEFER_UNAVAILABLE
+        ));
+    }
+
+    private static void platformDataFreeSubsetSkipsDetachedReadCapability() {
+        final SubLevelReconstructionPlotPlatformSupport.Capabilities callbacksOnly =
+                new SubLevelReconstructionPlotPlatformSupport.Capabilities(false, true);
+
+        final SubLevelReconstructionPlatformPreflight.Result noPlatformData =
+                SubLevelReconstructionPlatformPreflight.validateCapabilities(callbacksOnly, true, false);
+        assert noPlatformData.accepted();
+        assert noPlatformData.failures().isEmpty();
+
+        final SubLevelReconstructionPlatformPreflight.Result platformDataPresent =
+                SubLevelReconstructionPlatformPreflight.validateCapabilities(callbacksOnly, true, true);
+        assert platformDataPresent.failures().equals(Set.of(
+                SubLevelReconstructionPlatformPreflight.Failure.DETACHED_CHUNK_DATA_READ_UNAVAILABLE
         ));
     }
 
