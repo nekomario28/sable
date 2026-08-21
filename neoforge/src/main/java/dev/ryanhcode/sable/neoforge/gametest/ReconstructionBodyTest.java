@@ -101,14 +101,57 @@ public final class ReconstructionBodyTest {
             }
             bodyReservation.verify();
 
-            boolean livePublicationRejected = false;
-            try {
-                physicsSystem.getPipeline().add(detached, detached.logicalPose());
-            } catch (final IllegalStateException expected) {
-                livePublicationRejected = true;
-            }
-            if (!livePublicationRejected || !bodyReservation.open()) {
+            if (!rejects(() -> physicsSystem.getPipeline().add(detached, detached.logicalPose()))) {
                 helper.fail("Open reconstruction body allowed publication through the normal live-body registry");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().remove(detached))) {
+                helper.fail("Open reconstruction body allowed removal through the normal live-body registry");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().onStatsChanged(detached))) {
+                helper.fail("Open reconstruction body allowed live mass/bounds mutation");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().teleport(
+                    detached,
+                    new Vector3d(1.0, 2.0, 3.0),
+                    new Quaterniond()
+            ))) {
+                helper.fail("Open reconstruction body allowed live teleport mutation");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().applyImpulse(
+                    detached,
+                    new Vector3d(),
+                    new Vector3d(1.0, 0.0, 0.0)
+            ))) {
+                helper.fail("Open reconstruction body allowed live impulse mutation");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().applyLinearAndAngularImpulse(
+                    detached,
+                    new Vector3d(1.0, 0.0, 0.0),
+                    new Vector3d(0.0, 1.0, 0.0),
+                    true
+            ))) {
+                helper.fail("Open reconstruction body allowed live force/torque mutation");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().addLinearAndAngularVelocity(
+                    detached,
+                    new Vector3d(1.0, 0.0, 0.0),
+                    new Vector3d(0.0, 1.0, 0.0)
+            ))) {
+                helper.fail("Open reconstruction body allowed live velocity mutation");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().resetVelocity(detached))) {
+                helper.fail("Open reconstruction body allowed live velocity reset");
+                return;
+            }
+            if (!rejects(() -> physicsSystem.getPipeline().wakeUp(detached))) {
+                helper.fail("Open reconstruction body allowed live wake mutation");
                 return;
             }
             bodyReservation.verify();
@@ -322,6 +365,15 @@ public final class ReconstructionBodyTest {
         }
 
         helper.succeed();
+    }
+
+    private static boolean rejects(final Runnable operation) {
+        try {
+            operation.run();
+            return false;
+        } catch (final IllegalStateException expected) {
+            return true;
+        }
     }
 
     private static ServerSubLevel detachedTarget(
