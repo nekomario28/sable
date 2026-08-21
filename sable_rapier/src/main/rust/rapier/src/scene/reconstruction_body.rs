@@ -405,16 +405,49 @@ pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_ver
     with_handle(handle, |scene| body_matches(scene, ownership) as jboolean)
 }
 
-/// Commit remains deliberately unavailable until Java live-registry publication can be coupled
-/// atomically with native enablement. Rollback proof is the current safety milestone.
+/// Finalizes one already-verified provisional body without allocating new native state.
+///
+/// The ownership record remains present until the body has been enabled successfully. Therefore a
+/// rejection leaves the exact provisional state intact and rollbackable. After enablement, removing
+/// the already-present ownership entry is the only remaining transition and cannot allocate.
 #[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_ryanhcode_sable_physics_impl_rapier_Rapier3D_commitReconstructionSubLevelBody<'local>(
     _env: JNIEnv<'local>,
     _class: JClass<'local>,
-    _handle: jlong,
-    _object_id: jint,
+    handle: jlong,
+    object_id: jint,
 ) -> jboolean {
-    0
+    if handle == 0 || object_id < 0 {
+        return 0;
+    }
+    let owner = object_id as LevelColliderID;
+    let registry_key = (handle, owner);
+
+    let mut ownerships = reconstruction_bodies().write().unwrap();
+    let Some(ownership) = ownerships.get(&registry_key) else {
+        return 0;
+    };
+    if !with_handle(handle, |scene| body_matches(scene, ownership)) {
+        return 0;
+    }
+
+    let enabled = with_handle(handle, |scene| {
+        let mut sim_data = scene.sim_data.write().unwrap();
+        let Some(body) = sim_data.rigid_body_set.get_mut(ownership.body_handle) else {
+            return false;
+        };
+        if body.is_enabled() {
+            return false;
+        }
+        body.set_enabled(true);
+        body.is_enabled()
+    });
+    if !enabled {
+        return 0;
+    }
+
+    ownerships.remove(&registry_key);
+    1
 }
 
 #[unsafe(no_mangle)]
