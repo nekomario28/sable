@@ -61,7 +61,7 @@ public final class ReconstructionBodyTest {
             return;
         }
 
-        final int[] emptySlot = findEmptySlot(container);
+        final int[] emptySlot = findEmptySlotFromEnd(container, 0);
         if (emptySlot == null) {
             helper.fail("No empty target plot available for reconstruction body test");
             return;
@@ -175,7 +175,7 @@ public final class ReconstructionBodyTest {
             return;
         }
 
-        final int[] emptySlot = findEmptySlot(container);
+        final int[] emptySlot = findEmptySlotFromEnd(container, 1);
         if (emptySlot == null) {
             helper.fail("No empty target plot available for reconstruction orientation test");
             return;
@@ -247,7 +247,7 @@ public final class ReconstructionBodyTest {
             return;
         }
 
-        final int[] emptySlot = findEmptySlot(container);
+        final int[] emptySlot = findEmptySlotFromEnd(container, 2);
         if (emptySlot == null) {
             helper.fail("No empty target plot available for reconstruction body ordering test");
             return;
@@ -389,11 +389,21 @@ public final class ReconstructionBodyTest {
         });
     }
 
-    private static int[] findEmptySlot(final ServerSubLevelContainer container) {
+    private static int[] findEmptySlotFromEnd(
+            final ServerSubLevelContainer container,
+            final int ordinalFromEnd
+    ) {
+        if (ordinalFromEnd < 0) {
+            throw new IllegalArgumentException("ordinalFromEnd must be non-negative");
+        }
         final int sideLength = 1 << container.getLogSideLength();
-        for (int x = 0; x < sideLength; x++) {
-            for (int z = 0; z < sideLength; z++) {
-                if (container.getSubLevel(x, z) == null) {
+        int remaining = ordinalFromEnd;
+        for (int x = sideLength - 1; x >= 0; x--) {
+            for (int z = sideLength - 1; z >= 0; z--) {
+                if (container.getSubLevel(x, z) != null) {
+                    continue;
+                }
+                if (remaining-- == 0) {
                     return new int[]{x, z};
                 }
             }
