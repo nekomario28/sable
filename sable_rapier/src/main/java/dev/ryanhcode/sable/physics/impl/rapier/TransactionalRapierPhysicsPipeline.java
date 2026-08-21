@@ -14,6 +14,7 @@ import net.minecraft.server.level.ServerLevel;
 import org.jetbrains.annotations.ApiStatus;
 import org.jetbrains.annotations.Nullable;
 import org.joml.Matrix3dc;
+import org.joml.Quaterniond;
 import org.joml.Quaterniondc;
 import org.joml.Vector3dc;
 
@@ -120,6 +121,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         final Pose3dc pose = target.logicalPose();
         final Vector3dc position = pose.position();
         final Quaterniondc orientation = pose.orientation();
+        final Quaterniond normalizedOrientation = new Quaterniond(orientation).normalize();
         final BoundingBox3ic bounds = target.getPlot().getBoundingBox();
 
         final int[] blockBounds = {
@@ -136,7 +138,8 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         };
         final double[] poseArray = {
                 position.x(), position.y(), position.z(),
-                orientation.x(), orientation.y(), orientation.z(), orientation.w()
+                normalizedOrientation.x(), normalizedOrientation.y(),
+                normalizedOrientation.z(), normalizedOrientation.w()
         };
         final double[] centerOfMassArray = {
                 centerOfMass.x(), centerOfMass.y(), centerOfMass.z()
