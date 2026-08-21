@@ -22,6 +22,7 @@ import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import org.joml.Matrix3d;
 import org.joml.Matrix3dc;
+import org.joml.Quaterniond;
 import org.joml.Vector2i;
 import org.joml.Vector3d;
 import org.joml.Vector3dc;
@@ -81,7 +82,8 @@ public final class ReconstructionBodyTest {
                     runtimeReservation,
                     globalPlotX,
                     globalPlotZ,
-                    detachedUuid
+                    detachedUuid,
+                    new Pose3d()
             );
 
             if (container.getLoadedCount() != loadedBefore
@@ -95,6 +97,18 @@ public final class ReconstructionBodyTest {
             bodyReservation = bodySupport.acquireReconstructionBody(detached);
             if (!bodyReservation.open() || bodyReservation.ownerRuntimeId() != detached.getRuntimeId()) {
                 helper.fail("Reconstruction body reservation metadata is inconsistent");
+                return;
+            }
+            bodyReservation.verify();
+
+            boolean livePublicationRejected = false;
+            try {
+                physicsSystem.getPipeline().add(detached, detached.logicalPose());
+            } catch (final IllegalStateException expected) {
+                livePublicationRejected = true;
+            }
+            if (!livePublicationRejected || !bodyReservation.open()) {
+                helper.fail("Open reconstruction body allowed publication through the normal live-body registry");
                 return;
             }
             bodyReservation.verify();
@@ -130,6 +144,74 @@ public final class ReconstructionBodyTest {
                     || container.getSubLevel(detachedUuid) != null
                     || !detached.getPlot().getLoadedChunks().isEmpty()) {
                 helper.fail("Provisional body acquire/rollback published Java container state");
+                return;
+            }
+        } finally {
+            if (bodyReservation != null && bodyReservation.open()) {
+                bodyReservation.rollback();
+            }
+            if (runtimeReservation.open()) {
+                runtimeReservation.rollback();
+            }
+        }
+
+        helper.succeed();
+    }
+
+    @GameTest(template = "physicstest.gravity")
+    public static void nonUnitOrientationIsNormalizedAtProviderBoundary(final GameTestHelper helper) {
+        final ServerLevel level = helper.getLevel();
+        final ServerSubLevelContainer container = SubLevelContainer.getContainer(level);
+        if (container == null) {
+            helper.fail("Sub-level container is unavailable");
+            return;
+        }
+
+        final SubLevelPhysicsSystem physicsSystem = container.physicsSystem();
+        if (physicsSystem == null
+                || !(physicsSystem.getPipeline() instanceof final SubLevelReconstructionRuntimeIdSupport runtimeIdSupport)
+                || !(physicsSystem.getPipeline() instanceof final SubLevelReconstructionBodySupport bodySupport)) {
+            helper.fail("Physics pipeline does not expose reconstruction body prerequisites");
+            return;
+        }
+
+        final int[] emptySlot = findEmptySlot(container);
+        if (emptySlot == null) {
+            helper.fail("No empty target plot available for reconstruction orientation test");
+            return;
+        }
+        final Vector2i origin = container.getOrigin();
+        final int globalPlotX = origin.x + emptySlot[0];
+        final int globalPlotZ = origin.y + emptySlot[1];
+        final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation =
+                runtimeIdSupport.reserveReconstructionRuntimeId();
+        SubLevelReconstructionBodySupport.ReconstructionBodyReservation bodyReservation = null;
+        try {
+            final Pose3d nonUnitPose = new Pose3d(
+                    new Vector3d(),
+                    new Quaterniond(0.0, 0.0, 0.0, 2.0),
+                    new Vector3d(),
+                    new Vector3d(1.0)
+            );
+            final ServerSubLevel detached = detachedTarget(
+                    level,
+                    runtimeIdSupport,
+                    runtimeReservation,
+                    globalPlotX,
+                    globalPlotZ,
+                    UUID.randomUUID(),
+                    nonUnitPose
+            );
+            if (Math.abs(detached.logicalPose().orientation().lengthSquared() - 4.0) > 1.0E-12) {
+                helper.fail("Orientation fixture was normalized before reaching the provider boundary");
+                return;
+            }
+
+            bodyReservation = bodySupport.acquireReconstructionBody(detached);
+            bodyReservation.verify();
+            bodyReservation.rollback();
+            if (bodyReservation.open()) {
+                helper.fail("Normalized reconstruction body remained open after rollback");
                 return;
             }
         } finally {
@@ -186,7 +268,8 @@ public final class ReconstructionBodyTest {
                     runtimeReservation,
                     globalPlotX,
                     globalPlotZ,
-                    detachedUuid
+                    detachedUuid,
+                    new Pose3d()
             );
             bodyReservation = bodySupport.acquireReconstructionBody(detached);
             bodyReservation.verify();
@@ -247,11 +330,12 @@ public final class ReconstructionBodyTest {
             final SubLevelReconstructionRuntimeIdSupport.RuntimeIdReservation runtimeReservation,
             final int globalPlotX,
             final int globalPlotZ,
-            final UUID detachedUuid
+            final UUID detachedUuid,
+            final Pose3d pose
     ) {
         final ServerSubLevel detached = runtimeIdSupport.withReservedRuntimeId(
                 runtimeReservation,
-                () -> new ServerSubLevel(level, globalPlotX, globalPlotZ, new Pose3d())
+                () -> new ServerSubLevel(level, globalPlotX, globalPlotZ, pose)
         );
         detached.setUniqueId(detachedUuid);
         detached.restoreDetachedMassData(authoritativeMass());
