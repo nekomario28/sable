@@ -127,12 +127,12 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
                 bounds.maxX(), bounds.maxY(), bounds.maxZ()
         };
         final int[] plotSections = {
-                Math.floorDiv(bounds.minX(), 16),
-                Math.floorDiv(bounds.minY(), 16),
-                Math.floorDiv(bounds.minZ(), 16),
-                Math.floorDiv(bounds.maxX(), 16),
-                Math.floorDiv(bounds.maxY(), 16),
-                Math.floorDiv(bounds.maxZ(), 16)
+                target.getPlot().getChunkMin().x,
+                this.reconstructionLevel.getMinSection(),
+                target.getPlot().getChunkMin().z,
+                target.getPlot().getChunkMax().x,
+                this.reconstructionLevel.getMaxSection() - 1,
+                target.getPlot().getChunkMax().z
         };
         final double[] poseArray = {
                 position.x(), position.y(), position.z(),
