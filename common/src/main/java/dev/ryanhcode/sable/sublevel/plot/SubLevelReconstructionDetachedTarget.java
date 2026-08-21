@@ -5,6 +5,7 @@ import dev.ryanhcode.sable.api.physics.SubLevelReconstructionRuntimeIdSupport;
 import dev.ryanhcode.sable.api.physics.mass.MassData;
 import dev.ryanhcode.sable.api.sublevel.ServerSubLevelContainer;
 import dev.ryanhcode.sable.api.sublevel.SubLevelContainer;
+import dev.ryanhcode.sable.companion.math.BoundingBox3ic;
 import dev.ryanhcode.sable.sublevel.ServerSubLevel;
 import dev.ryanhcode.sable.sublevel.system.SubLevelPhysicsSystem;
 import net.minecraft.server.level.ServerLevel;
@@ -18,9 +19,9 @@ import java.util.Objects;
  *
  * <p>The ordinary {@link ServerSubLevel} constructor is used inside the target physics pipeline's
  * reserved-runtime-ID adoption scope. The serialized local target slot is converted back to the
- * global plot coordinates expected by the constructor. The target UUID and validated authoritative
- * self-mass are restored immediately, then the authoritative container baseline is re-verified to
- * prove detached initialization itself published nothing.</p>
+ * global plot coordinates expected by the constructor. The target UUID, validated authoritative
+ * self-mass and deterministic decoded plot bounds are restored immediately, then the authoritative
+ * container baseline is re-verified to prove detached initialization itself published nothing.</p>
  *
  * <p>Acquisition begins the reconstruction transaction and leaves it MATERIALIZING. The runtime-ID
  * reservation is registered as both a rollback action and the transaction's single final commit
@@ -36,14 +37,19 @@ public final class SubLevelReconstructionDetachedTarget {
         PHYSICS_SYSTEM_UNAVAILABLE,
         RUNTIME_ID_SUPPORT_UNAVAILABLE,
         TARGET_COORDINATE_OVERFLOW,
+        BOUNDS_EMPTY,
+        BOUNDS_COORDINATE_OVERFLOW,
         RUNTIME_ID_RESERVATION_FAILED,
         TARGET_CONSTRUCTION_FAILED,
         RUNTIME_ID_MISMATCH,
         UUID_MISMATCH,
         MASS_RESTORE_FAILED,
         MASS_RESTORE_MISMATCH,
+        BOUNDS_INSTALL_FAILED,
+        BOUNDS_INSTALL_MISMATCH,
         CONSTRUCTION_PUBLISHED_STATE,
-        MASS_INSTALL_PUBLISHED_STATE
+        MASS_INSTALL_PUBLISHED_STATE,
+        BOUNDS_INSTALL_PUBLISHED_STATE
     }
 
     public sealed interface Acquisition permits Acquired, Rejected, RolledBack {
@@ -133,6 +139,16 @@ public final class SubLevelReconstructionDetachedTarget {
         if (!attempt.baseline().verify(targetLevel).exact()) {
             return new Rejected(Failure.BASELINE_DRIFT);
         }
+
+        final SubLevelReconstructionDecodedBounds.Capture boundsCapture =
+                SubLevelReconstructionDecodedBounds.compute(targetLevel, attempt.decodedPayload());
+        if (!boundsCapture.accepted()) {
+            if (boundsCapture.failures().contains(SubLevelReconstructionDecodedBounds.Failure.EMPTY_NON_AIR_CONTENT)) {
+                return new Rejected(Failure.BOUNDS_EMPTY);
+            }
+            return new Rejected(Failure.BOUNDS_COORDINATE_OVERFLOW);
+        }
+        final BoundingBox3ic expectedBounds = boundsCapture.bounds().orElseThrow();
 
         final ServerSubLevelContainer container = SubLevelContainer.getContainer(targetLevel);
         if (container == null) {
@@ -252,6 +268,28 @@ public final class SubLevelReconstructionDetachedTarget {
                 );
             }
 
+            try {
+                detached.getPlot().setBoundingBox(expectedBounds);
+            } catch (final RuntimeException | AssertionError boundsFailure) {
+                throw new AcquisitionFailure(
+                        Failure.BOUNDS_INSTALL_FAILED,
+                        "Detached target decoded bounds installation failed",
+                        boundsFailure
+                );
+            }
+            if (!boundsMatch(detached.getPlot().getBoundingBox(), expectedBounds)) {
+                throw new AcquisitionFailure(
+                        Failure.BOUNDS_INSTALL_MISMATCH,
+                        "Detached target plot bounds do not exactly match decoded bounds"
+                );
+            }
+            if (!attempt.baseline().verify(targetLevel).exact()) {
+                throw new AcquisitionFailure(
+                        Failure.BOUNDS_INSTALL_PUBLISHED_STATE,
+                        "Detached target bounds installation changed authoritative container state"
+                );
+            }
+
             return new Acquired(new SubLevelReconstructionDetachedTarget(
                     attempt,
                     detached,
@@ -280,6 +318,15 @@ public final class SubLevelReconstructionDetachedTarget {
                 && actual.getCenterOfMass().equals(expected.getCenterOfMass(), 0.0)
                 && actual.getInertiaTensor().equals(expected.getInertiaTensor(), 0.0)
                 && actual.getInverseInertiaTensor().equals(expected.getInverseInertiaTensor(), 0.0);
+    }
+
+    private static boolean boundsMatch(final BoundingBox3ic actual, final BoundingBox3ic expected) {
+        return actual.minX() == expected.minX()
+                && actual.minY() == expected.minY()
+                && actual.minZ() == expected.minZ()
+                && actual.maxX() == expected.maxX()
+                && actual.maxY() == expected.maxY()
+                && actual.maxZ() == expected.maxZ();
     }
 
     @ApiStatus.Internal
