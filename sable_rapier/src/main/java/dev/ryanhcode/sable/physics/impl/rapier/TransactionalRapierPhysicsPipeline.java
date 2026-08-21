@@ -148,8 +148,7 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
         );
         final Pose3dc pose = target.logicalPose();
         final Vector3dc position = pose.position();
-        final Quaterniondc orientation = pose.orientation();
-        final Quaterniond normalizedOrientation = new Quaterniond(orientation).normalize();
+        final Quaterniond normalizedOrientation = normalizeOrientation(pose.orientation());
         final BoundingBox3ic bounds = target.getPlot().getBoundingBox();
 
         final int[] blockBounds = {
@@ -243,6 +242,29 @@ final class TransactionalRapierPhysicsPipeline extends RapierPhysicsPipeline
             throw new IllegalStateException("Rapier rejected transactional reconstruction section acquisition");
         }
         return reservation;
+    }
+
+    private static Quaterniond normalizeOrientation(final Quaterniondc orientation) {
+        Objects.requireNonNull(orientation, "orientation");
+        final double x = orientation.x();
+        final double y = orientation.y();
+        final double z = orientation.z();
+        final double w = orientation.w();
+        final double scale = Math.max(
+                Math.max(Math.abs(x), Math.abs(y)),
+                Math.max(Math.abs(z), Math.abs(w))
+        );
+        if (!Double.isFinite(scale) || scale == 0.0) {
+            throw new IllegalStateException("Reconstruction body target has an invalid orientation");
+        }
+        final Quaterniond normalized = new Quaterniond(x / scale, y / scale, z / scale, w / scale).normalize();
+        if (!Double.isFinite(normalized.x())
+                || !Double.isFinite(normalized.y())
+                || !Double.isFinite(normalized.z())
+                || !Double.isFinite(normalized.w())) {
+            throw new IllegalStateException("Reconstruction body target orientation could not be normalized");
+        }
+        return normalized;
     }
 
     private record RuntimeIdReservationAdapter(
